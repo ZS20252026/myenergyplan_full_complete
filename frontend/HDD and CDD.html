@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>HDD/CDD Heating & Cooling Sizing Calculator</title>
+<style>
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;margin:18px auto;max-width:1100px;padding:12px;color:#111;background:#f6f7fb}
+  h1{margin:0 0 6px;font-size:1.4rem}
+  .muted{color:#58616a;font-size:0.95rem}
+  .card{background:#fff;border-radius:10px;padding:14px;margin:12px 0;box-shadow:0 1px 8px rgba(16,24,40,0.04)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1 1 260px;min-width:220px}
+  label{display:block;font-weight:700;margin-bottom:6px}
+  input,select,button{width:100%;padding:9px;border-radius:8px;border:1px solid #d6dbe2;box-sizing:border-box}
+  button{background:#0b76ef;color:white;border:0;padding:10px 12px;cursor:pointer;border-radius:8px}
+  button.secondary{background:#11a951}
+  .out{background:#fbfdff;border:1px solid #e6f0ff;padding:10px;border-radius:8px;margin-top:8px}
+  table{border-collapse:collapse;width:100%}
+  td,th{padding:6px;border-bottom:1px solid #eee}
+  .error{color:#b00020;font-weight:700;margin-top:8px}
+  small{color:#666}
+</style>
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <h1>HDD / CDD — Heating & Cooling Energy & Power Calculator</h1>
+  <div class="muted">Calculates annual heating & cooling energy (kWh), kWh/m² and peak kW per m² using HDD/CDD (Open-Meteo) and user building parameters. Change base temperatures and design ΔT as required.</div>
+
+  <div class="card">
+    <h3>1) Site & temperature data</h3>
+    <div class="row">
+      <div class="col">
+        <label>Location source</label>
+        <select id="locMode">
+          <option value="geolocate">Use browser geolocation (recommended)</option>
+          <option value="coords">Enter latitude/longitude</option>
+          <option value="place">Search place name</option>
+        </select>
+
+        <div id="coordsBox" style="display:none;margin-top:8px">
+          <label>Latitude</label><input id="lat" type="number" step="0.0001" placeholder="e.g. 41.9981">
+          <label style="margin-top:8px">Longitude</label><input id="lon" type="number" step="0.0001" placeholder="e.g. 21.4254">
+        </div>
+
+        <div id="placeBox" style="display:none;margin-top:8px">
+          <label>Place name (city, address)</label><input id="place" placeholder="e.g. Skopje, Macedonia">
+          <small>Geocoding via Nominatim (OpenStreetMap)</small>
+        </div>
+      </div>
+
+      <div class="col">
+        <label>Degree-day base temperatures</label>
+        <div style="display:flex;gap:8px">
+          <input id="hddBase" type="number" value="18" step="0.1" />
+          <input id="cddBase" type="number" value="24" step="0.1" />
+        </div>
+        <small>HDD base (°C) and CDD base (°C). Common values: HDD 15–18°C, CDD 24°C. (See notes / sources.)</small>
+      </div>
+
+      <div class="col">
+        <label>Year to use for climate (previous full year)</label>
+        <input id="year" type="number" value="" />
+        <small>Leave empty to auto-select previous full calendar year.</small>
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <small>Data source for daily mean temperature: Open-Meteo API (no key). HDD = sum(max(0, baseHDD - Tmean_day)). CDD = sum(max(0, Tmean_day - baseCDD)).</small>
+      <div style="margin-top:8px"><button id="fetchBtn">Fetch climate & Calculate</button></div>
+      <div id="siteError" class="error"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>2) Building geometry & exposure</h3>
+    <div class="row">
+      <div class="col">
+        <label>Gross floor area (m²)</label>
+        <input id="grossArea" type="number" value="200" step="0.1">
+      </div>
+      <div class="col">
+        <label>Net heated/cooled area (m²)</label>
+        <input id="netArea" type="number" value="180" step="0.1">
+      </div>
+      <div class="col">
+        <label>Average overall U-value (W/m²K) — building envelope (weighted)</label>
+        <input id="Uoverall" type="number" value="0.6" step="0.01">
+        <small>Approx. whole-building average U (walls+roof+windows). Use estimated weighted U.</small>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col">
+        <label>Exposure</label>
+        <select id="exposure">
+          <option value="sheltered">Sheltered (urban / sheltered site)</option>
+          <option value="exposed">Exposed (windy / exposed site)</option>
+        </select>
+        <small>Exposed increases heat loss (wind, infiltration).</small>
+      </div>
+      <div class="col">
+        <label>Exposure factor (multiplier on UA)</label>
+        <input id="exposureFactor" type="number" value="1.10" step="0.01">
+        <small>Default 1.10 for exposed; 1.00 for sheltered. Edit to match local conditions.</small>
+      </div>
+      <div class="col">
+        <label>Internal setpoint T<sub>heat</sub> (°C)</label>
+        <input id="tIndoorHeat" type="number" value="20" step="0.1">
+        <label style="margin-top:8px">Design outdoor T<sub>heat</sub> (°C)</label>
+        <input id="tOutdoorDesignHeat" type="number" value="-5" step="0.1">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col">
+        <label>Cooling setpoint T<sub>cool</sub> (°C)</label>
+        <input id="tIndoorCool" type="number" value="24" step="0.1">
+      </div>
+      <div class="col">
+        <label>Design outdoor T<sub>cool</sub> (°C)</label>
+        <input id="tOutdoorDesignCool" type="number" value="35" step="0.1">
+      </div>
+      <div class="col">
+        <label>Heating system efficiency / COP (usable fraction)</label>
+        <input id="heatingEff" type="number" value="0.90" step="0.01">
+        <small>Fraction of delivered heat vs input (e.g., boiler efficiency or heat pump seasonal performance). Used to convert building heat loss to fuel/electricity input.</small>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col">
+        <label>Cooling system COP / EER (efficiency)</label>
+        <input id="coolingCop" type="number" value="3.0" step="0.01">
+        <small>COP (coefficient of performance) for cooling (electric chiller / inverter AC). Used to convert cooling load to electricity.</small>
+      </div>
+      <div class="col">
+        <label>Emission factor (kg CO₂ / kWh)</label>
+        <input id="emFactor" type="number" value="0.45" step="0.01">
+      </div>
+      <div class="col">
+        <label>Use area for kWh/m² calculation</label>
+        <select id="areaChoice">
+          <option value="gross">Gross area</option>
+          <option value="net">Net heated/cooled area</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="resultsCard" class="card" style="display:none">
+    <h3>Results</h3>
+    <div id="summary" class="out"></div>
+
+    <h4>Detailed table</h4>
+    <table><tbody id="resultTable"></tbody></table>
+
+    <div style="margin-top:12px" class="row">
+      <button id="pdfBtn" class="secondary">Download PDF report</button>
+      <button id="resetBtn" style="background:#f2f2f2;color:#111">Reset</button>
+    </div>
+    <div style="margin-top:8px" class="muted small">
+      Notes: Degree day results depend on chosen base temperatures. HDD/CDD are computed from daily mean temperatures via Open-Meteo for the chosen year. Defaults for base temperatures are editable. For national/regional conventions see Eurostat and degree-days references. :contentReference[oaicite:1]{index=1}
+    </div>
+  </div>
+
+  <div id="debug" style="display:none"></div>
+
+<script>
+// Utilities
+const id = x => document.getElementById(x);
+
+// UI toggles
+id('locMode').addEventListener('change', (e)=>{
+  id('coordsBox').style.display = e.target.value==='coords' ? 'block' : 'none';
+  id('placeBox').style.display = e.target.value==='place' ? 'block' : 'none';
+});
+
+// Auto-fill year (previous full year) if empty
+(function initYear(){
+  const now = new Date();
+  const prevYear = now.getUTCFullYear() - 1;
+  id('year').value = prevYear;
+})();
+
+// Geocoding using Nominatim (OpenStreetMap)
+async function geocode(place){
+  const q = encodeURIComponent(place);
+  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
+  const res = await fetch(url,{headers:{'Accept':'application/json'}});
+  if(!res.ok) throw new Error('Geocoding failed');
+  const arr = await res.json();
+  if(!arr || arr.length===0) throw new Error('Place not found');
+  return {lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon), name: arr[0].display_name};
+}
+
+// Fetch daily mean temperature for full calendar year using Open-Meteo
+async function fetchDailyTemps(lat, lon, year){
+  const start = `${year}-01-01`;
+  const end = `${year}-12-31`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_mean&start_date=${start}&end_date=${end}&timezone=UTC`;
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('Open-Meteo request failed: ' + r.status);
+  const j = await r.json();
+  if(!j.daily || !j.daily.temperature_2m_mean) throw new Error('No temperature data returned');
+  return {daily: j.daily.temperature_2m_mean, year};
+}
+
+// Degree day computation
+function computeDegreeDays(dailyTemps, baseHDD, baseCDD){
+  let HDD = 0, CDD = 0;
+  for(const T of dailyTemps){
+    const t = Number(T);
+    if(isFinite(t)){
+      if(t < baseHDD) HDD += (baseHDD - t);
+      if(t > baseCDD) CDD += (t - baseCDD);
+    }
+  }
+  return {HDD, CDD};
+}
+
+// Main calculation
+async function calculateAll(){
+  id('siteError').textContent = '';
+  // get location
+  let lat, lon, siteLabel;
+  try{
+    const mode = id('locMode').value;
+    if(mode === 'geolocate'){
+      const pos = await new Promise((res, rej)=>{
+        if(!navigator.geolocation) return rej(new Error('Geolocation not supported'));
+        navigator.geolocation.getCurrentPosition(p=>res(p.coords), err=>rej(err));
+      });
+      lat = pos.latitude; lon = pos.longitude; siteLabel = `Browser location (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+    } else if(mode === 'coords'){
+      lat = parseFloat(id('lat').value); lon = parseFloat(id('lon').value);
+      if(!isFinite(lat)||!isFinite(lon)) throw new Error('Enter valid coordinates');
+      siteLabel = `Coordinates (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+    } else {
+      const place = id('place').value.trim(); if(!place) throw new Error('Enter place name');
+      const g = await geocode(place); lat = g.lat; lon = g.lon; siteLabel = g.name;
+    }
+  } catch(err){
+    id('siteError').textContent = 'Location error: ' + err.message;
+    return;
+  }
+
+  // year & fetch temps
+  const year = parseInt(id('year').value) || (new Date().getUTCFullYear()-1);
+  let temps;
+  try{
+    temps = await fetchDailyTemps(lat, lon, year);
+  } catch(err){
+    id('siteError').textContent = 'Climate data error: ' + err.message;
+    return;
+  }
+
+  // degree days
+  const baseHDD = parseFloat(id('hddBase').value);
+  const baseCDD = parseFloat(id('cddBase').value);
+  const dd = computeDegreeDays(temps.daily, baseHDD, baseCDD);
+
+  // building parameters
+  const gross = parseFloat(id('grossArea').value);
+  const net = parseFloat(id('netArea').value);
+  const areaFor = id('areaChoice').value === 'net' ? net : gross;
+  if(!areaFor || areaFor <= 0){ id('siteError').textContent = 'Enter valid area (gross or net).'; return; }
+
+  const U = parseFloat(id('Uoverall').value); if(!isFinite(U)||U<=0){ id('siteError').textContent='Enter valid overall U-value.'; return; }
+  const exposureFactor = parseFloat(id('exposureFactor').value) || 1.0;
+  const UA = U * areaFor * exposureFactor; // W/K overall (applies to chosen area)
+  // NOTE: UA uses the same area as chosen for kWh/m2 output so results are consistent
+
+  // annual heating energy using degree-day method:
+  // Energy_heating (kWh/year) = UA (W/K) * HDD (°C·days) * 24 (h/day) / 1000 (W->kW)
+  const annualHeatingLoss_kWh = UA * dd.HDD * 24.0 / 1000.0;
+
+  // account for heating system efficiency -> energy input required
+  const heatingEff = parseFloat(id('heatingEff').value) || 1.0; // fraction
+  const annualHeatingInput_kWh = annualHeatingLoss_kWh / (heatingEff || 1);
+
+  // Cooling: analogous with CDD
+  // Energy_cooling (kWh/year) = UA (W/K) * CDD (°C·days) * 24 / 1000  (approximation)
+  const rawCoolingLoad_kWh = UA * dd.CDD * 24.0 / 1000.0;
+  // Convert to electric input using COP (kW thermal per kW electric)
+  const coolingCop = parseFloat(id('coolingCop').value) || 1.0;
+  const annualCoolingInput_kWh = rawCoolingLoad_kWh / (coolingCop || 1);
+
+  // Peak power (approximate): Q_peak (kW) = UA (W/K) * deltaT_design / 1000
+  const tIndoorHeat = parseFloat(id('tIndoorHeat').value);
+  const tOutdoorDesignHeat = parseFloat(id('tOutdoorDesignHeat').value);
+  const deltaT_heat = tIndoorHeat - tOutdoorDesignHeat;
+  const peakHeat_kW = Math.max(0, UA * deltaT_heat / 1000.0);
+
+  const tIndoorCool = parseFloat(id('tIndoorCool').value);
+  const tOutdoorDesignCool = parseFloat(id('tOutdoorDesignCool').value);
+  const deltaT_cool = tOutdoorDesignCool - tIndoorCool;
+  const peakCool_kW = Math.max(0, UA * deltaT_cool / 1000.0);
+
+  // normalize per m2 (kWh/m2/year and kW/m2 peak)
+  const heating_kWh_per_m2 = annualHeatingInput_kWh / areaFor;
+  const cooling_kWh_per_m2 = annualCoolingInput_kWh / areaFor;
+  const peakHeat_kW_per_m2 = peakHeat_kW / areaFor;
+  const peakCool_kW_per_m2 = peakCool_kW / areaFor;
+
+  // CO2 savings / values placeholder: show emissions per energy
+  const emFactor = parseFloat(id('emFactor').value) || 0.45;
+  const heating_CO2_kg = annualHeatingInput_kWh * emFactor;
+  const cooling_CO2_kg = annualCoolingInput_kWh * emFactor;
+
+  // store results for PDF
+  const results = {
+    siteLabel, lat, lon, year, HDD: dd.HDD, CDD: dd.CDD,
+    baseHDD, baseCDD, areaFor, gross, net, U, exposureFactor, UA,
+    annualHeatingLoss_kWh, annualHeatingInput_kWh, annualCoolingInput_kWh, rawCoolingLoad_kWh,
+    peakHeat_kW, peakCool_kW, heating_kWh_per_m2, cooling_kWh_per_m2, peakHeat_kW_per_m2, peakCool_kW_per_m2,
+    heating_CO2_kg, cooling_CO2_kg, heatingEff, coolingCop, tIndoorHeat, tOutdoorDesignHeat, tIndoorCool, tOutdoorDesignCool
+  };
+  id('resultsCard').dataset.report = JSON.stringify(results);
+
+  // render summary
+  id('summary').innerHTML = `
+    <strong>Site:</strong> ${siteLabel}<br>
+    <strong>HDD (${baseHDD}°C):</strong> ${dd.HDD.toFixed(1)} °C·days · <strong>CDD (${baseCDD}°C):</strong> ${dd.CDD.toFixed(1)} °C·days<br>
+    <strong>Area used:</strong> ${areaFor.toFixed(1)} m² (${id('areaChoice').value}) · <strong>Overall U:</strong> ${U.toFixed(3)} W/m²K · <strong>Exposure factor:</strong> ${exposureFactor.toFixed(2)}<br>
+    <strong>Annual heating energy required (delivered to building):</strong> ${annualHeatingInput_kWh.toFixed(0)} kWh/year · <strong>(${heating_kWh_per_m2.toFixed(1)} kWh/m²·year)</strong><br>
+    <strong>Annual cooling electricity required (approx):</strong> ${annualCoolingInput_kWh.toFixed(0)} kWh/year · <strong>(${cooling_kWh_per_m2.toFixed(1)} kWh/m²·year)</strong><br>
+    <strong>Approx. peak heating power required:</strong> ${peakHeat_kW.toFixed(2)} kW · <strong>(${peakHeat_kW_per_m2.toFixed(3)} kW/m²)</strong><br>
+    <strong>Approx. peak cooling power required (thermal):</strong> ${peakCool_kW.toFixed(2)} kW · <strong>(${peakCool_kW_per_m2.toFixed(3)} kW/m²)</strong><br>
+    <strong>Estimated CO₂ (heating):</strong> ${heating_CO2_kg.toFixed(0)} kgCO₂/year · <strong>CO₂ (cooling):</strong> ${cooling_CO2_kg.toFixed(0)} kgCO₂/year
+  `;
+
+  // detailed table
+  const t = id('resultTable'); t.innerHTML = '';
+  const add = (k,v) => t.insertAdjacentHTML('beforeend', `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`);
+  add('Latitude / Longitude', `${lat.toFixed(4)} / ${lon.toFixed(4)}`);
+  add('Selected year', year);
+  add('HDD', dd.HDD.toFixed(1));
+  add('CDD', dd.CDD.toFixed(1));
+  add('Overall UA (W/K)', UA.toFixed(1));
+  add('Annual heating (delivered) kWh', Math.round(annualHeatingInput_kWh));
+  add('Annual cooling (electric) kWh', Math.round(annualCoolingInput_kWh));
+  add('Heating kWh/m²·year', heating_kWh_per_m2.toFixed(1));
+  add('Cooling kWh/m²·year', cooling_kWh_per_m2.toFixed(1));
+  add('Peak heat kW', peakHeat_kW.toFixed(2));
+  add('Peak cool kW (thermal)', peakCool_kW.toFixed(2));
+  add('Peak heat kW/m²', peakHeat_kW_per_m2.toFixed(3));
+  add('Peak cool kW/m²', peakCool_kW_per_m2.toFixed(3));
+  add('CO₂ emission factor (kg/kWh)', emFactor);
+  add('Estimated CO₂ (heating)', Math.round(heating_CO2_kg) + ' kg/year');
+  add('Estimated CO₂ (cooling)', Math.round(cooling_CO2_kg) + ' kg/year');
+
+  id('resultsCard').style.display = 'block';
+  id('debug').textContent = JSON.stringify(results, null, 2);
+}
+
+// Attach fetch button
+id('fetchBtn').addEventListener('click', async ()=>{
+  id('fetchBtn').disabled = true;
+  id('fetchBtn').textContent = 'Working…';
+  try{ await calculateAll(); } catch(e){ id('siteError').textContent = 'Error: ' + e.message; }
+  id('fetchBtn').disabled = false;
+  id('fetchBtn').textContent = 'Fetch climate & Calculate';
+});
+
+// Reset
+id('resetBtn').addEventListener('click', ()=> location.reload());
+
+// PDF
+id('pdfBtn').addEventListener('click', ()=>{
+  const r = id('resultsCard').dataset.report;
+  if(!r){ alert('Run calculation first'); return; }
+  const data = JSON.parse(r);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  let y = 14;
+  doc.setFontSize(14);
+  doc.text('Heating & Cooling Sizing Report', 14, y); y+=8;
+  doc.setFontSize(11);
+  doc.text(`Site: ${data.siteLabel}`, 14, y); y+=6;
+  doc.text(`Coordinates: ${data.lat.toFixed(4)}, ${data.lon.toFixed(4)} — Year: ${data.year}`, 14, y); y+=6;
+  doc.text(`HDD (${data.baseHDD}°C): ${data.HDD.toFixed(1)} °C·days`, 14, y); y+=6;
+  doc.text(`CDD (${data.baseCDD}°C): ${data.CDD.toFixed(1)} °C·days`, 14, y); y+=8;
+  doc.text(`Area used: ${data.areaFor} m² · Overall U: ${data.U.toFixed(3)} W/m²K · Exposure factor: ${data.exposureFactor}`, 14, y); y+=8;
+  doc.text(`Annual heating (delivered): ${Math.round(data.annualHeatingInput_kWh)} kWh/year (${data.heating_kWh_per_m2.toFixed(1)} kWh/m²·year)`, 14, y); y+=6;
+  doc.text(`Annual cooling (electric approx): ${Math.round(data.annualCoolingInput_kWh)} kWh/year (${data.cooling_kWh_per_m2.toFixed(1)} kWh/m²·year)`, 14, y); y+=6;
+  doc.text(`Peak heating power (approx): ${data.peakHeat_kW.toFixed(2)} kW (${data.peakHeat_kW_per_m2.toFixed(3)} kW/m²)`, 14, y); y+=6;
+  doc.text(`Peak cooling (thermal) (approx): ${data.peakCool_kW.toFixed(2)} kW (${data.peakCool_kW_per_m2.toFixed(3)} kW/m²)`, 14, y); y+=8;
+  doc.text(`Assumptions: Degree-days from Open-Meteo daily mean temperatures. HDD/CDD base temps chosen by user. Energy = UA * DD * 24 /1000. UA = U * area * exposure factor. Heating input accounts for system efficiency; cooling input accounts for COP.`, 14, y); y+=10;
+  doc.save('Heating_Cooling_Sizing_Report.pdf');
+});
+</script>
+</body>
+</html>

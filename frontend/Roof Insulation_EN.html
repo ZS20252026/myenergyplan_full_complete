@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Roof Insulation Calculator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+:root{--accent:#0b76ef;--muted:#667089}
+body{font-family:Inter,Arial,Helvetica,sans-serif;background:#f4f7fb;color:#102a43;padding:24px}
+.container{max-width:980px;margin:0 auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 24px rgba(12,38,64,0.08)}
+h1{color:var(--accent);margin-top:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+label{display:block;font-weight:600;margin-top:8px;color:var(--muted)}
+input,select,textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #d6e0ee;margin-top:6px}
+.full{grid-column:1 / -1}
+.btn{background:var(--accent);color:#fff;padding:10px 14px;border-radius:8px;border:none;cursor:pointer;margin-top:12px}
+.btn.secondary{background:#6c7a89}
+.results{background:#eaf3ff;border-left:4px solid var(--accent);padding:12px;border-radius:8px;margin-top:14px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{padding:8px;border-bottom:1px solid #eef4fb;text-align:left}
+.note{font-size:0.9rem;color:#6b7280;margin-top:8px}
+.small{font-size:0.9rem;color:#6b7280}
+.row{display:flex;gap:8px}
+.col{flex:1}
+footer{margin-top:18px;font-size:0.9rem;color:#8292a6}
+.danger{color:#b02a37;font-weight:700}
+.formula{background:#fff3cd;border-left:4px solid #ffecb5;padding:10px;margin-top:12px;border-radius:6px;font-size:0.9rem;color:#664d03}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Roof Insulation Calculator</h1>
+<p class="small">Enter roof parameters. Calculates annual heat loss, energy savings, CO₂ reduction, and costs.</p>
+<div class="grid">
+
+<div>
+<h3>1) Basic Parameters</h3>
+<label>Roof area (m²) <input id="area" type="number" value="100" step="0.1"> </label>
+<label>Heating Degree Days (HDD) <input id="hdd" type="number" value="2200"> </label>
+<label>Heating efficiency (%) <input id="heatingEff" type="number" value="85" step="1"> </label>
+<label>Energy price (€/kWh) <input id="price" type="number" value="0.12" step="0.01"> </label>
+<label>CO₂ factor (kg/kWh) <input id="co2factor" type="number" value="0.25" step="0.01"> </label>
+<p class="note">Default HDD 2200 for moderately cold climates.</p>
+</div>
+
+<div>
+<h3>2) Existing Roof</h3>
+<label>Roof material (preset U-value or custom)</label>
+<select id="existingPreset">
+<option value="2.5">Timber + tiles — Uw≈2.5</option>
+<option value="2.0">Thin concrete — Uw≈2.0</option>
+<option value="3.5">Metal roof — Uw≈3.5</option>
+<option value="custom">Custom</option>
+</select>
+<label>Custom U-value <input id="existingU" type="number" value="2.5" step="0.01"></label>
+</div>
+
+<div class="full">
+<h3>3) Proposed Insulation</h3>
+<div class="row">
+<div class="col">
+<label>Type</label>
+<select id="insulationType">
+<option value="EPS">EPS</option>
+<option value="XPS">XPS</option>
+<option value="mineral">Mineral Wool</option>
+<option value="polyiso">Polyiso</option>
+</select>
+</div>
+<div class="col">
+<label>Thickness (cm)</label>
+<input id="insulationThickness" type="number" value="10" step="1">
+</div>
+</div>
+<label>Thermal conductivity λ (W/mK)</label>
+<select id="lambdaPreset">
+<option value="0.036">EPS λ=0.036</option>
+<option value="0.034">XPS λ=0.034</option>
+<option value="0.040">Mineral λ=0.040</option>
+<option value="0.028">Polyiso λ=0.028</option>
+<option value="customlambda">Custom</option>
+</select>
+<label>Custom λ <input id="customLambda" type="number" value="0.036" step="0.001"></label>
+</div>
+
+<div class="full">
+<h3>4) Additional Layers</h3>
+<label><input type="checkbox" id="vapourBarrier" checked> Vapour barrier</label>
+<label><input type="checkbox" id="ventilationGap" checked> Ventilation gap</label>
+<label><input type="checkbox" id="waterproofing" checked> Waterproofing</label>
+</div>
+
+<div class="full">
+<button class="btn" id="calcBtn">Calculate</button>
+<button class="btn secondary" id="pdfBtn">Download PDF</button>
+</div>
+
+<div class="full">
+<div id="output" style="display:none" class="results">
+<h3>Results</h3>
+<table>
+<tr><td>Area (m²)</td><td id="outArea"></td></tr>
+<tr><td>Existing U (W/m²K)</td><td id="outExistingU"></td></tr>
+<tr><td>Existing heat loss (kWh/year)</td><td id="outExistingQ"></td></tr>
+<tr><td>New U after insulation (W/m²K)</td><td id="outNewU"></td></tr>
+<tr><td>New heat loss (kWh/year)</td><td id="outNewQ"></td></tr>
+<tr><td>Energy savings (kWh/year)</td><td id="outSavings"></td></tr>
+<tr><td>CO₂ savings (kg/year)</td><td id="outCO2"></td></tr>
+<tr><td>Monetary savings (€/year)</td><td id="outMoney"></td></tr>
+</table>
+<div id="details" style="font-size:0.9rem;color:#29425b"></div>
+<div class="formula" id="formulas"></div>
+</div>
+</div>
+
+</div>
+<footer>
+<p class="small">Annual heat loss Q = U × A × HDD × 24 ÷ 1000 ÷ heating efficiency. Preliminary estimate.</p>
+</footer>
+</div>
+
+<script>
+function pf(id){return parseFloat(document.getElementById(id).value||0);}
+function setText(id,txt){document.getElementById(id).textContent=txt;}
+
+document.getElementById('existingPreset').addEventListener('change', e=>{
+  const v = e.target.value;
+  if(v==='custom'){document.getElementById('existingU').removeAttribute('readonly');}
+  else{document.getElementById('existingU').value=v;document.getElementById('existingU').setAttribute('readonly','readonly');}
+});
+document.getElementById('lambdaPreset').addEventListener('change', e=>{
+  if(e.target.value==='customlambda'){document.getElementById('customLambda').removeAttribute('readonly');}
+  else{document.getElementById('customLambda').value=e.target.value;document.getElementById('customLambda').setAttribute('readonly','readonly');}
+});
+document.getElementById('existingPreset').dispatchEvent(new Event('change'));
+document.getElementById('lambdaPreset').dispatchEvent(new Event('change'));
+
+document.getElementById('calcBtn').addEventListener('click', ()=>{
+  const A=pf('area'), HDD=pf('hdd'), heatingEff=pf('heatingEff')/100 || 0.85;
+  const price=pf('price'), co2factor=pf('co2factor'), existingU=pf('existingU');
+
+  let lambda=pf('customLambda');
+  const lambdaPresetVal=document.getElementById('lambdaPreset').value;
+  if(lambdaPresetVal!=='customlambda') lambda=parseFloat(lambdaPresetVal);
+
+  const thickness_m=pf('insulationThickness')/100;
+  const R_ins=thickness_m/lambda;
+  const R_existing=(existingU>0)? 1/existingU : 0;
+  const R_surface=0.13;
+  const R_total_new=R_existing + R_ins + R_surface;
+  const U_new=1/R_total_new;
+
+  // Correct calculation
+  const Q_existing = existingU*A*HDD*24/1000/heatingEff;
+  const Q_new = U_new*A*HDD*24/1000/heatingEff;
+  const savings = Q_existing - Q_new;
+  const co2savings = savings * co2factor;
+  const moneySavings = savings * price;
+
+  document.getElementById('output').style.display='block';
+  setText('outArea',A.toFixed(2)+' m²');
+  setText('outExistingU',existingU.toFixed(2)+' W/m²K');
+  setText('outExistingQ',Q_existing.toFixed(0)+' kWh/year');
+  setText('outNewU',U_new.toFixed(3)+' W/m²K');
+  setText('outNewQ',Q_new.toFixed(0)+' kWh/year');
+  setText('outSavings',savings.toFixed(0)+' kWh/year');
+  setText('outCO2',co2savings.toFixed(1)+' kg/year');
+  setText('outMoney','€ '+moneySavings.toFixed(2));
+
+  const details=[];
+  details.push(`Existing roof U: ${existingU.toFixed(3)} W/m²K`);
+  details.push(`Insulation: ${document.getElementById('insulationType').value}, ${(thickness_m*100).toFixed(0)} cm, λ=${lambda.toFixed(3)}`);
+  details.push(`New roof U: ${U_new.toFixed(3)} W/m²K`);
+  details.push(`Existing heat loss: ${Q_existing.toFixed(0)} kWh/year`);
+  details.push(`New heat loss: ${Q_new.toFixed(0)} kWh/year`);
+  details.push(`Energy savings: ${savings.toFixed(0)} kWh/year`);
+  details.push(`CO₂ savings: ${co2savings.toFixed(1)} kg/year`);
+  details.push(`Monetary savings: €${moneySavings.toFixed(2)}/year`);
+  document.getElementById('details').innerHTML='<ul><li>'+details.join('</li><li>')+'</li></ul>';
+
+  // Formulas explanation
+  const formulas = `
+  <strong>Formulas used:</strong><br>
+  1) New U-value: U_new = 1 / (R_existing + R_ins + R_surface)<br>
+  2) Insulation resistance: R_ins = thickness / λ<br>
+  3) Annual heat loss: Q = U × Area × HDD × 24 ÷ 1000 ÷ Heating efficiency<br>
+  4) Energy savings: ΔQ = Q_existing - Q_new<br>
+  5) CO₂ savings: CO₂ = ΔQ × CO₂ factor<br>
+  6) Monetary savings: € = ΔQ × Energy price
+  `;
+  document.getElementById('formulas').innerHTML = formulas;
+});
+
+// PDF generation same as before
+document.getElementById('pdfBtn').addEventListener('click', async ()=>{
+  const out=document.getElementById('output');
+  if(out.style.display==='none'){alert('Please run the calculation first.');return;}
+  try{
+    const canvas=await html2canvas(out,{scale:2,useCORS:true});
+    const imgData=canvas.toDataURL('image/png');
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+    const pageWidth=pdf.internal.pageSize.getWidth();
+    const imgProps=pdf.getImageProperties(imgData);
+    const pdfWidth=pageWidth-60;
+    const pdfHeight=(imgProps.height*pdfWidth)/imgProps.width;
+    pdf.setFontSize(14);
+    pdf.text('Roof Insulation Report',40,40);
+    pdf.addImage(imgData,'PNG',40,60,pdfWidth,pdfHeight);
+    pdf.text(`Generated: ${new Date().toLocaleString()}`,40,60+pdfHeight+20);
+    pdf.save('roof_insulation_report.pdf');
+  }catch(e){alert('PDF generation failed: '+e.message);}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energy Savings Calculator – Windows & Doors</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f7fb;
+    color: #333;
+    max-width: 900px;
+    margin: 30px auto;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+  }
+  h1 {
+    text-align: center;
+    color: #1a73e8;
+  }
+  h2 {
+    border-bottom: 2px solid #1a73e8;
+    padding-bottom: 5px;
+    margin-top: 40px;
+  }
+  label {
+    font-weight: bold;
+  }
+  select, input {
+    margin: 8px 0;
+    padding: 8px;
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+  button {
+    background-color: #1a73e8;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  button:hover {
+    background-color: #125ecb;
+  }
+  .result {
+    background-color: #eaf3ff;
+    border-left: 4px solid #1a73e8;
+    padding: 15px;
+    margin-top: 20px;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Energy Savings Calculator<br>for Window & Door Replacement</h1>
+
+<h2>Step 1 – Existing Windows/Doors</h2>
+<label for="existingType">Select existing type:</label>
+<select id="existingType">
+  <option value="4.5">Wood single-glazed window (Uw = 4.5 W/m²K)</option>
+  <option value="2.8">Wood double-glazed window (Uw = 2.8 W/m²K)</option>
+  <option value="1.8">PVC double-glazed window (Uw = 1.8 W/m²K)</option>
+  <option value="5.0">Aluminum window (no break) (Uw = 5.0 W/m²K)</option>
+  <option value="2.5">Aluminum with thermal break (Uw = 2.5 W/m²K)</option>
+  <option value="3.0">Entrance door (old) (Uw = 3.0 W/m²K)</option>
+  <option value="2.8">Balcony door (old) (Uw = 2.8 W/m²K)</option>
+</select>
+
+<label for="existingArea">Enter total area (m²):</label>
+<input type="number" id="existingArea" placeholder="e.g. 25">
+
+<h2>Step 2 – Replacement Type</h2>
+<label for="newType">Select new efficient type:</label>
+<select id="newType">
+  <option value="1.1">PVC triple-glazed window (Uw = 1.1 W/m²K)</option>
+  <option value="1.3">Aluminum triple-glazed window (Uw = 1.3 W/m²K)</option>
+  <option value="1.2">Wood triple-glazed window (Uw = 1.2 W/m²K)</option>
+  <option value="1.0">High-insulated door (Uw = 1.0 W/m²K)</option>
+  <option value="0.8">Passive-house window (Uw = 0.8 W/m²K)</option>
+</select>
+
+<h2>Step 3 – Calculation Parameters</h2>
+<label for="degreeDays">Heating degree days:</label>
+<input type="number" id="degreeDays" value="2200">
+
+<label for="ghgFactor">GHG emission factor (kg CO₂ per kWh):</label>
+<input type="number" id="ghgFactor" value="0.25" step="0.01">
+
+<button onclick="calculateResults()">Calculate Energy Savings</button>
+
+<div id="results" class="result" style="display:none;">
+  <h2>Results</h2>
+  <p id="existingEnergy"></p>
+  <p id="newEnergy"></p>
+  <p id="energySavings"></p>
+  <p id="ghgSavings"></p>
+</div>
+
+<script>
+function calculateEnergy(U, area, degreeDays) {
+  // Simplified annual energy loss formula (kWh)
+  return U * area * degreeDays * 24 / 1000 * 0.024;
+}
+
+function calculateResults() {
+  const existingU = parseFloat(document.getElementById('existingType').value);
+  const newU = parseFloat(document.getElementById('newType').value);
+  const area = parseFloat(document.getElementById('existingArea').value);
+  const degreeDays = parseFloat(document.getElementById('degreeDays').value);
+  const ghgFactor = parseFloat(document.getElementById('ghgFactor').value);
+
+  if (isNaN(area) || area <= 0) {
+    alert("Please enter a valid area.");
+    return;
+  }
+
+  const existingEnergy = calculateEnergy(existingU, area, degreeDays);
+  const newEnergy = calculateEnergy(newU, area, degreeDays);
+  const energySavings = existingEnergy - newEnergy;
+  const ghgSavings = energySavings * ghgFactor;
+
+  document.getElementById('existingEnergy').innerHTML = 
+    `🔹 Existing energy consumption: <b>${existingEnergy.toFixed(2)}</b> kWh/year`;
+  document.getElementById('newEnergy').innerHTML = 
+    `🔹 New energy consumption: <b>${newEnergy.toFixed(2)}</b> kWh/year`;
+  document.getElementById('energySavings').innerHTML = 
+    `✅ Energy savings: <b>${energySavings.toFixed(2)}</b> kWh/year`;
+  document.getElementById('ghgSavings').innerHTML = 
+    `🌱 GHG emission savings: <b>${ghgSavings.toFixed(2)}</b> kg CO₂/year`;
+
+  document.getElementById('results').style.display = 'block';
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Simulated Payment</title></head><body>
+<h2>Simulated Hosted Payment Page</h2>
+<p>This is a local simulation of the bank Hosted Payment Page (HPP).</p>
+<p>Card: **** **** **** 1234</p>
+<button id="pay">Simulate Pay</button>
+<script>
+const params = new URLSearchParams(location.search);
+const orderId = params.get('orderId');
+const email = params.get('email');
+document.getElementById('pay').onclick = async ()=>{
+  const res = await fetch('/api/webhook', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ orderId, email, status:'paid' }) });
+  if(res.ok){ alert('Payment simulated'); location.href = '/frontend/success.html'; } else alert('Webhook failed');
+};
+</script>
+</body></html>

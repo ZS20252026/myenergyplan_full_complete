@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Secure Payment</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    form { max-width: 400px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+    label { display: block; margin-top: 10px; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 15px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    .note { font-size: 13px; color: #666; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+<h2>Make a Payment</h2>
+
+<form id="payment-form">
+  <label for="name">Name</label>
+  <input type="text" id="name" required>
+
+  <label for="email">Email</label>
+  <input type="email" id="email" required>
+
+  <p class="note">
+    You will be redirected to a secure 2Checkout (Verifone) payment page to complete the purchase.
+  </p>
+
+  <button type="submit">Pay 5 EUR</button>
+</form>
+
+<script>
+  // 1) ТУКА ВЛЕГУВА ГОТОВИОТ BUY-LINK ОД 2CHECKOUT
+  // Пример структура (ова го заменуваш со твојата реална URL):
+  // https://secure.2checkout.com/checkout/buy?merchant=XXXXXX&prod=YYYYYY&qty=1&price=5&currency=EUR&signature=ZZZZZZ
+  const BUY_LINK = "https://secure.2checkout.com/checkout/buy?merchant=YOUR_MERCHANT_CODE&prod=YOUR_PRODUCT_ID&qty=1&price=5&currency=EUR&signature=YOUR_SIGNATURE";
+
+  const form = document.getElementById('payment-form');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    // Ако сакаш, можеш да ги користиш вредностите подолу
+    const name  = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim();
+
+    // Ако НЕ ти треба да ги праќаш до 2Checkout, само редирект:
+    // window.location.href = BUY_LINK;
+
+    // Ако сакаш да праќаш име/имејл кон 2Checkout како query params (ако се дозволени во твојата конфигурација):
+    const url = new URL(BUY_LINK);
+
+    // Овие параметри се опционални, зависи што ти дозволува buy-link конфигурацијата
+    // Ако не си сигурна, слободно избриши го овој блок и остави само window.location.href = BUY_LINK;
+    url.searchParams.set("name", name);
+    url.searchParams.set("email", email);
+
+    window.location.href = url.toString();
+  });
+</script>
+
+</body>
+</html>

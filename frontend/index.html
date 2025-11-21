@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MyEnergyPlan — Main Menu</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>MyEnergyPlan</h1>
+    <p>Select a calculator (requires subscription).</p>
+    <label>Email: <input id="email" type="email" placeholder="you@example.com"></label>
+    <label>Choose calculator:
+      <select id="calcSelect">
+        <option value="">-- Select --</option>
+      <option value="HDD and CDD.html">HDD and CDD</option>
+      <option value="pv_calculator.html">Photovoltaic System (PV)</option>
+      <option value="wall insolation.html">Wall insulation</option>
+      <option value="Roof Insulation_EN.html">Roof Insulation</option>
+      <option value="window door calculator.html">Windows and doors calculator</option>
+      <option value="Required heat for heating and cooling of a building.html">Required Heat for Heating/Cooling</option>
+      <option value="Heat pump.html">Replacing heating with Heat Pump</option>
+      </select>
+    </label>
+    <button id="openCalc">Open Calculator</button>
+
+    <div id="paywall" class="hidden">
+      <p>Pay 5 € to access this module for 1 month.</p>
+      <button id="payBtn">Pay Now</button>
+    </div>
+  </div>
+
+<script src="script.js" defer></script>
+</body>
+</html>

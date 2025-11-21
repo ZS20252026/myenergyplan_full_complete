@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Wall U-value & Energy Savings Calculator</title>
+<style>
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,Helvetica;margin:18px auto;max-width:980px;color:#111}
+  h1{font-size:1.3rem;margin-bottom:0}
+  .muted{color:#61666f;font-size:0.95rem}
+  .card{background:#fff;padding:14px;border-radius:10px;box-shadow:0 1px 6px rgba(20,20,40,0.04);margin-top:12px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1 1 220px;min-width:220px}
+  label{display:block;font-weight:700;margin-bottom:6px}
+  input,select,button,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #d6dbe2;box-sizing:border-box}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+  button.primary{background:#0b76ef;color:#fff;border:0;padding:10px;border-radius:8px;cursor:pointer}
+  .out{background:#fbfdff;border:1px solid #e6f0ff;padding:10px;border-radius:8px;margin-top:10px}
+  .error{color:#b00020;font-weight:700;margin-top:8px}
+  .small{font-size:0.9rem;color:#555}
+  .mini{font-size:0.85rem;color:#666}
+  .flex-end{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+</style>
+<!-- jsPDF for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<h1>Wall U-value & Energy Savings Calculator</h1>
+<p class="muted">Calculate existing wall U-value and effect of added insulation. Estimate annual energy savings and CO₂ reduction.</p>
+
+<div class="card">
+  <h3>1) Wall geometry & consumption basis</h3>
+  <div class="row">
+    <div class="col">
+      <label>Wall surface area (m²)</label>
+      <input id="area" type="number" step="0.1" value="50" />
+      <small class="small">Area of the external wall to be insulated (m²).</small>
+    </div>
+
+    <div class="col">
+      <label>Heating method for annual energy estimate</label>
+      <select id="hddMode">
+        <option value="hdd">Use Heating Degree Days (HDD, °C·days)</option>
+        <option value="hours">Use heating season hours & avg ΔT</option>
+      </select>
+    </div>
+
+    <div id="hddRow" class="col">
+      <label>Heating Degree Days (HDD, °C·days / year)</label>
+      <input id="hdd" type="number" value="3000" step="1" />
+      <div class="mini">If you don't know HDD, typical values: southern Europe ~2000–2500, colder climates 3000–4000+. Enter local HDD or ask me to help find it.</div>
+    </div>
+
+    <div id="hoursRow" class="col" style="display:none">
+      <label>Heating season hours (h/year)</label>
+      <input id="heatingHours" type="number" value="3000" step="1" />
+      <label style="margin-top:8px">Average indoor-outdoor ΔT during heating (°C)</label>
+      <input id="avgDeltaT" type="number" value="15" step="0.1" />
+      <div class="mini">Example: indoor 20°C, average outdoor 5°C → ΔT ≈15°C</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>2) Define existing wall layers</h3>
+  <p class="mini">Enter each layer: thickness (mm) and thermal conductivity λ (W/m·K). You can also choose common materials from the dropdown.</p>
+  <table id="layersTable">
+    <thead><tr><th>Material</th><th>Thickness (mm)</th><th>λ (W/m·K)</th><th>R (m²K/W)</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <select id="materialSelect">
+      <option value="">-- choose material --</option>
+      <option data-l="0.17" value="brick">Brick (common) λ=0.77 W/mK — use 0.77</option>
+      <option data-l="0.035" value="mineral_wool">Mineral wool (insulation) λ=0.035</option>
+      <option data-l="0.040" value="xps">XPS foam λ=0.040</option>
+      <option data-l="1.70" value="concrete">Concrete λ=1.70</option>
+      <option data-l="0.13" value="air_gap">Air gap λ≈0.13</option>
+      <option data-l="0.20" value="plaster">Plaster λ≈0.20</option>
+      <option data-l="0.04" value="polyiso">Polyiso λ=0.024</option>
+    </select>
+    <input id="matThickness" type="number" placeholder="thickness mm" style="width:140px"/>
+    <input id="matLambda" type="number" placeholder="λ W/m·K" style="width:140px"/>
+    <button id="addLayer" class="primary" style="width:140px">Add layer</button>
+  </div>
+
+  <div class="mini" style="margin-top:8px">Surface resistances are added automatically (internal Rsi = 0.13, external Rse = 0.04 m²K/W).</div>
+</div>
+
+<div class="card">
+  <h3>3) Insulation to add (external or internal)</h3>
+  <div class="row">
+    <div class="col">
+      <label>Insulation thickness (mm)</label>
+      <input id="insThickness" type="number" value="100" step="1" />
+    </div>
+    <div class="col">
+      <label>Insulation λ (W/m·K)</label>
+      <input id="insLambda" type="number" value="0.036" step="0.001" />
+    </div>
+    <div class="col">
+      <label>Placement</label>
+      <select id="insPlacement">
+        <option value="external">External (recommended)</option>
+        <option value="internal">Internal</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button id="calcBtn" class="primary">Calculate U-values & Savings</button>
+    <button id="pdfBtn" style="background:#11a951;color:#fff;border:0;padding:10px;border-radius:8px;cursor:pointer">Download PDF Report</button>
+  </div>
+
+  <div id="error" class="error"></div>
+</div>
+
+<div id="results" class="card" style="display:none">
+  <h3>Results</h3>
+  <div id="summary" class="out"></div>
+
+  <h4>Details</h4>
+  <table>
+    <tbody id="details"></tbody>
+  </table>
+</div>
+
+<script>
+/* --- Constants & defaults --- */
+const Rsi = 0.13; // internal surface resistance m2K/W (typical)
+const Rse = 0.04; // external surface resistance m2K/W (vertical external)
+const kgCO2_per_kWh_default = 0.45; // default emission factor kg CO2 per kWh
+
+/* --- UI helpers --- */
+const el = id => document.getElementById(id);
+const layersTbody = document.querySelector('#layersTable tbody');
+
+let layers = []; // array of {name, thickness_mm, lambda}
+
+/* Populate material selection to auto-fill lambda when chosen */
+document.getElementById('materialSelect').addEventListener('change', function(e){
+  const opt = this.options[this.selectedIndex];
+  const lam = opt.dataset.l;
+  if(lam) el('matLambda').value = lam;
+});
+
+/* Add layer */
+document.getElementById('addLayer').addEventListener('click', ()=>{
+  const nameOpt = document.getElementById('materialSelect');
+  const name = nameOpt.value ? nameOpt.options[nameOpt.selectedIndex].text : 'Custom';
+  const thickness = parseFloat(el('matThickness').value);
+  const lambda = parseFloat(el('matLambda').value);
+  if(!thickness || !lambda || thickness <= 0 || lambda <= 0){
+    el('error').textContent = 'Enter valid thickness (mm) and λ (W/m·K) for the layer.';
+    return;
+  }
+  el('error').textContent = '';
+  const layer = {name, thickness_mm: thickness, lambda: lambda};
+  layers.push(layer);
+  renderLayers();
+  el('matThickness').value = '';
+  // keep lambda for convenience
+});
+
+/* render layers table */
+function renderLayers(){
+  layersTbody.innerHTML = '';
+  layers.forEach((ly, idx)=>{
+    const R = (ly.thickness_mm/1000) / ly.lambda;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${ly.name}</td><td>${ly.thickness_mm.toFixed(0)}</td><td>${ly.lambda.toFixed(3)}</td><td>${R.toFixed(3)}</td>
+      <td><button data-idx="${idx}" class="rm">Remove</button></td>`;
+    layersTbody.appendChild(tr);
+  });
+  // attach remove handlers
+  document.querySelectorAll('.rm').forEach(btn=>{
+    btn.addEventListener('click', (ev)=>{
+      const idx = parseInt(ev.target.dataset.idx);
+      layers.splice(idx,1);
+      renderLayers();
+    });
+  });
+}
+
+/* HDD vs hours toggle */
+el('hddMode').addEventListener('change', (e)=>{
+  if(e.target.value === 'hdd'){
+    el('hddRow').style.display = 'block';
+    el('hoursRow').style.display = 'none';
+  } else {
+    el('hddRow').style.display = 'none';
+    el('hoursRow').style.display = 'block';
+  }
+});
+
+/* Calculation */
+el('calcBtn').addEventListener('click', ()=> {
+  el('error').textContent = '';
+  if(layers.length === 0){ el('error').textContent = 'Please add at least one wall layer.'; return; }
+  const area = parseFloat(el('area').value);
+  if(!area || area <= 0){ el('error').textContent = 'Enter valid wall area.'; return; }
+
+  const insThickness = parseFloat(el('insThickness').value);
+  const insLambda = parseFloat(el('insLambda').value);
+  const insPlacement = el('insPlacement').value;
+
+  // compute R_total existing
+  const R_layers = layers.map(l => ({...l, R: (l.thickness_mm/1000)/l.lambda}));
+  const R_existing = R_layers.reduce((s,li)=>s + li.R, 0) + Rsi + Rse;
+  const U_existing = 1 / R_existing;
+
+  // compute R with insulation: add new layer on specified side
+  const insLayer = {name: 'Added insulation', thickness_mm: insThickness, lambda: insLambda, R: (insThickness/1000)/insLambda};
+  let newLayers;
+  if(insPlacement === 'external'){
+    // external: Rse remains outside; add insulation before external surface
+    newLayers = [...R_layers, insLayer];
+  } else {
+    // internal: add after internal surface: insert after Rsi conceptually; but we only need total R sum
+    newLayers = [insLayer, ...R_layers];
+  }
+  const R_withIns = newLayers.reduce((s,li)=>s + li.R, 0) + Rsi + Rse;
+  const U_withIns = 1 / R_withIns;
+
+  // Heat transfer per degree (W per K): U*A
+  const UA_existing = U_existing * area;
+  const UA_withIns = U_withIns * area;
+
+  // Annual energy: two options
+  let annualLossExisting_kWh = 0;
+  let annualLossWithIns_kWh = 0;
+  if(el('hddMode').value === 'hdd'){
+    const HDD = parseFloat(el('hdd').value);
+    if(isNaN(HDD) || HDD <= 0){ el('error').textContent='Enter valid HDD.'; return; }
+    // Energy (kWh) = U * A * HDD * 24 / 1000
+    annualLossExisting_kWh = UA_existing * HDD * 24 / 1000;
+    annualLossWithIns_kWh = UA_withIns * HDD * 24 / 1000;
+  } else {
+    // hours mode
+    const hh = parseFloat(el('heatingHours').value);
+    const dT = parseFloat(el('avgDeltaT').value);
+    if(isNaN(hh)||hh<=0||isNaN(dT)||dT<=0){ el('error').textContent='Enter valid heating hours and average ΔT.'; return; }
+    // energy (kWh) = UA * dT * hours /1000
+    annualLossExisting_kWh = UA_existing * dT * hh / 1000;
+    annualLossWithIns_kWh = UA_withIns * dT * hh / 1000;
+  }
+
+  const savings_kWh = annualLossExisting_kWh - annualLossWithIns_kWh;
+  const percSavings = (savings_kWh / annualLossExisting_kWh) * 100;
+
+  const co2factor = kgCO2_per_kWh_default;
+  const co2Saving = savings_kWh * co2factor;
+
+  // compute suggested insulation thickness to reach a target U (optional)
+  // we can compute thickness needed to reach U_target (let user enter?) — for now compute thickness to reach U <= 0.25 W/m2K if insulation external
+  const targetU = 0.25;
+  let thicknessToTarget = null;
+  if(insPlacement === 'external'){
+    // find required R_ins so that 1/(R_existing_nonIns + R_ins + Rsi + Rse) <= targetU
+    const R_nonIns = R_layers.reduce((s,li)=>s + li.R, 0); // without added insulation
+    const R_required_total = 1/targetU;
+    const R_needed_ins = R_required_total - R_nonIns - Rsi - Rse;
+    if(R_needed_ins > 0) thicknessToTarget = R_needed_ins * insLambda * 1000; // using current insLambda as guidance
+  }
+
+  // render results
+  el('results').style.display = 'block';
+  el('summary').innerHTML = `
+    <strong>U (existing):</strong> ${U_existing.toFixed(3)} W/m²K<br>
+    <strong>U (with insulation):</strong> ${U_withIns.toFixed(3)} W/m²K<br>
+    <strong>Heat loss (existing):</strong> ${UA_existing.toFixed(2)} W/K (i.e. W per °C indoor-outdoor)<br>
+    <strong>Heat loss (with insulation):</strong> ${UA_withIns.toFixed(2)} W/K<br>
+    <strong>Annual energy (existing):</strong> ${annualLossExisting_kWh.toFixed(0)} kWh/year<br>
+    <strong>Annual energy (with insulation):</strong> ${annualLossWithIns_kWh.toFixed(0)} kWh/year<br>
+    <strong>Estimated annual savings:</strong> ${savings_kWh.toFixed(0)} kWh/year (${percSavings.toFixed(1)}%)<br>
+    <strong>Estimated CO₂ savings:</strong> ${co2Saving.toFixed(0)} kg CO₂/year (factor ${co2factor} kgCO₂/kWh)
+  `;
+
+  // details
+  const det = el('details');
+  det.innerHTML = '';
+  // list existing layers
+  det.insertAdjacentHTML('beforeend', `<tr><td><strong>Existing layers (R values)</strong></td><td></td></tr>`);
+  R_layers.forEach(l => det.insertAdjacentHTML('beforeend', `<tr><td>${l.name} — ${l.thickness_mm} mm @ λ=${l.lambda} W/mK</td><td>R=${((l.thickness_mm/1000)/l.lambda).toFixed(3)} m²K/W</td></tr>`));
+  det.insertAdjacentHTML('beforeend', `<tr><td>Rsi (internal)</td><td>${Rsi.toFixed(3)}</td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td>Rse (external)</td><td>${Rse.toFixed(3)}</td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td><strong>R (existing total)</strong></td><td>${R_existing.toFixed(3)} m²K/W</td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td><strong>U existing</strong></td><td>${U_existing.toFixed(3)} W/m²K</td></tr>`);
+
+  det.insertAdjacentHTML('beforeend', `<tr><td style="padding-top:12px"><strong>With insulation (${insPlacement})</strong></td><td></td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td>Insulation — ${insThickness} mm @ λ=${insLambda}</td><td>R=${((insThickness/1000)/insLambda).toFixed(3)} m²K/W</td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td><strong>R (with insulation)</strong></td><td>${R_withIns.toFixed(3)} m²K/W</td></tr>`);
+  det.insertAdjacentHTML('beforeend', `<tr><td><strong>U (with insulation)</strong></td><td>${U_withIns.toFixed(3)} W/m²K</td></tr>`);
+
+  if(thicknessToTarget){
+    det.insertAdjacentHTML('beforeend', `<tr><td style="padding-top:12px"><strong>To reach U ≤ ${targetU} W/m²K</strong></td><td>${thicknessToTarget>0 ? thicknessToTarget.toFixed(0) + ' mm (using current λ)' : 'already below target'}</td></tr>`);
+  }
+
+  // attach data for PDF
+  el('results').dataset.report = JSON.stringify({
+    area, R_layers, R_existing, U_existing, insLayer, R_withIns, U_withIns,
+    UA_existing, UA_withIns, annualLossExisting_kWh, annualLossWithIns_kWh, savings_kWh, co2Saving, percSavings
+  });
+});
+
+/* --- PDF export --- */
+el('pdfBtn').addEventListener('click', ()=>{
+  const dataS = el('results').dataset.report;
+  if(!dataS){ alert('No results yet. Run calculation first.'); return; }
+  const data = JSON.parse(dataS);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  let y=14;
+  doc.setFontSize(14);
+  doc.text('Wall U-value & Energy Savings Report', 14, y); y+=8;
+  doc.setFontSize(11);
+  doc.text(`Area: ${data.area} m²`, 14, y); y+=6;
+  doc.text(`U existing: ${data.U_existing.toFixed(3)} W/m²K — U with insulation: ${data.U_withIns.toFixed(3)} W/m²K`, 14, y); y+=8;
+  doc.text(`Annual energy existing: ${Math.round(data.annualLossExisting_kWh)} kWh — with insulation: ${Math.round(data.annualLossWithIns_kWh)} kWh`, 14, y); y+=8;
+  doc.text(`Estimated savings: ${Math.round(data.savings_kWh)} kWh/year — CO₂ saved: ${Math.round(data.co2Saving)} kg/year`, 14, y); y+=10;
+  doc.setFontSize(10);
+  doc.text('Layer details (name: thickness mm @ λ W/mK -> R m²K/W):', 14, y); y+=6;
+  data.R_layers.forEach((l, i) => {
+    if(y>270){ doc.addPage(); y=20; }
+    const R = ((l.thickness_mm/1000)/l.lambda).toFixed(3);
+    doc.text(`${i+1}) ${l.name}: ${l.thickness_mm}mm @ ${l.lambda} -> R=${R}`, 14, y);
+    y+=5;
+  });
+  if(y>260) { doc.addPage(); y=20; }
+  doc.text(`Insulation: ${data.insLayer.name}, ${data.insLayer.thickness_mm} mm @ ${data.insLayer.lambda} W/mK`, 14, y); y+=6;
+  doc.text('Assumptions: Rsi=0.13 m²K/W, Rse=0.04 m²K/W. Energy calc uses HDD or heating hours as provided.', 14, y); y+=8;
+  doc.save('Wall_Uvalue_Report.pdf');
+});
+</script>
+
+</body>
+</html>

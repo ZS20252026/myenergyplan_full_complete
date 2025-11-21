@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Professional PV Sizing — Roof PV + Inverter + PDF report</title>
+<style>
+  :root{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#111}
+  body{max-width:1100px;margin:20px auto;padding:18px}
+  h1{margin:0 0 8px;font-size:1.4rem}
+  .muted{color:#60666f;font-size:0.95rem}
+  .card{background:white;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 6px rgba(20,20,40,0.05)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1 1 260px;min-width:220px}
+  label{display:block;font-weight:600;margin-bottom:6px}
+  input,select,button,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #d6dbe2;box-sizing:border-box}
+  button{background:#0b76ef;color:white;border:0;padding:10px 12px;cursor:pointer;border-radius:8px}
+  button.secondary{background:#11a951}
+  small{color:#666}
+  .out{background:#fbfdff;border:1px solid #e6f0ff;padding:10px;border-radius:8px;margin-top:8px}
+  ul{margin:8px 0 0 18px}
+  table{border-collapse:collapse;width:100%}
+  td,th{padding:6px;border-bottom:1px solid #eee}
+  .error{color:#b00020;font-weight:700}
+</style>
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <h1>Professional PV Sizing — Roof PV & Inverter</h1>
+  <div class="muted">Enter your average electricity consumption, allow location detection (or enter coordinates), fetch solar data from Open-Meteo and get a professional preliminary PV design + PDF report.</div>
+
+  <div class="card">
+    <h3>1. Load & site input</h3>
+    <div class="row">
+      <div class="col">
+        <label>Average consumption</label>
+        <input id="consumption" type="number" placeholder="kWh (monthly or yearly)" />
+        <select id="consumptionPeriod" style="margin-top:8px">
+          <option value="monthly">Monthly (kWh)</option>
+          <option value="yearly">Yearly (kWh)</option>
+        </select>
+        <small>Enter your household/ facility average consumption. Prefer yearly for better accuracy.</small>
+      </div>
+
+      <div class="col">
+        <label>Location source</label>
+        <select id="locMode">
+          <option value="geolocate">Use my browser location (recommended)</option>
+          <option value="coords">Enter latitude / longitude</option>
+          <option value="search">Search place name</option>
+        </select>
+
+        <div id="coordsBox" style="display:none;margin-top:10px">
+          <label>Latitude</label><input id="latitude" type="number" step="0.0001" placeholder="e.g. 41.9981"/>
+          <label style="margin-top:8px">Longitude</label><input id="longitude" type="number" step="0.0001" placeholder="e.g. 21.4254"/>
+        </div>
+
+        <div id="searchBox" style="display:none;margin-top:10px">
+          <label>Place name (city, address)</label>
+          <input id="placeName" placeholder="e.g. Skopje, Macedonia" />
+          <small class="muted">Uses Nominatim (OpenStreetMap) to geocode; no key.</small>
+        </div>
+      </div>
+
+      <div class="col">
+        <label>Roof azimuth (°)</label>
+        <input id="azimuth" type="number" value="180" step="1" />
+        <small class="muted">180° = South; 0° = North. Default faces South.</small>
+
+        <label style="margin-top:8px">Available roof area (m²) (optional)</label>
+        <input id="roofArea" type="number" placeholder="If known, used to verify panel fit" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>2. PV system & assumptions</h3>
+    <div class="row">
+      <div class="col">
+        <label>Panel Wp (per module)</label>
+        <input id="panelWp" type="number" value="405" />
+        <small>Typical modern panels 350–450 Wp</small>
+      </div>
+
+      <div class="col">
+        <label>Panel efficiency (optional %)</label>
+        <input id="panelEff" type="number" placeholder="e.g. 20" />
+        <small>Only used to estimate area per panel if panel dimensions unknown.</small>
+      </div>
+
+      <div class="col">
+        <label>System derating (losses %) </label>
+        <input id="derating" type="number" value="14" />
+        <small>Include inverter, temp, wiring, soiling. Typical 10–18% (enter %)</small>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="row">
+      <div class="col">
+        <label>Grid emission factor (kg CO₂ / kWh)</label>
+        <input id="co2factor" type="number" value="0.45" step="0.01" />
+        <small>Used for CO₂ savings estimate (default 0.45 kg/kWh).</small>
+      </div>
+      <div class="col">
+        <label>Orientation strategy</label>
+        <select id="tiltStrategy">
+          <option value="lat">Fixed-year optimum (tilt ≈ latitude)</option>
+          <option value="lat-10">Year-round optimized (latitude - 10°)</option>
+          <option value="custom">Manual tilt</option>
+        </select>
+        <input id="manualTilt" type="number" placeholder="If manual tilt, enter °" style="margin-top:8px;display:none" />
+      </div>
+
+      <div class="col" style="display:flex;align-items:flex-end">
+        <button id="fetchSolar">Fetch solar data & Calculate</button>
+      </div>
+    </div>
+
+    <div id="inputError" class="error" style="margin-top:8px"></div>
+    <div class="muted" style="margin-top:8px">Data source: Open-Meteo (nearest grid point). PSH (kWh/m²/day) = average daily shortwave radiation / 1000.</div>
+  </div>
+
+  <div id="resultsCard" class="card" style="display:none">
+    <h3>Results summary</h3>
+    <div id="resultsOut" class="out"></div>
+
+    <h4>Detailed results</h4>
+    <table>
+      <tbody id="resultsTable"></tbody>
+    </table>
+
+    <div style="margin-top:12px" class="row">
+      <button id="downloadPdf">Download PDF report</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+    </div>
+  </div>
+
+<script>
+/*
+Professional PV Sizing single-file app
+- Uses Open-Meteo daily shortwave_radiation_sum (Wh/m2 per day)
+- Computes PSH = avg_daily_irradiation / 1000 (kWh/m2/day)
+- Calculates required DC kWp, number of panels, area, inverter recommendation, expected annual energy, CO2 savings
+- Generates PDF report with jsPDF
+*/
+
+/* ---------- Utility & configuration ---------- */
+const INVERTER_STANDARD_W = [1000,1500,2000,3000,4000,5000,6000,8000,10000,12000,15000,20000,30000,50000]; // W
+const PANEL_AREA_DEFAULT_M2 = 1.95; // typical 395-405 W panel ~1.95 m2, used if panelEff not provided
+
+function nearestInverterW(w) {
+  for (const s of INVERTER_STANDARD_W) if (s >= w) return s;
+  return INVERTER_STANDARD_W[INVERTER_STANDARD_W.length-1];
+}
+
+/* ---------- UI helpers ---------- */
+const id = (s) => document.getElementById(s);
+id('locMode').addEventListener('change', e => {
+  id('coordsBox').style.display = e.target.value==='coords' ? 'block' : 'none';
+  id('searchBox').style.display = e.target.value==='search' ? 'block' : 'none';
+});
+id('tiltStrategy').addEventListener('change', e => {
+  id('manualTilt').style.display = e.target.value==='custom' ? 'block' : 'none';
+});
+id('resetBtn').addEventListener('click', ()=> location.reload());
+
+/* ---------- Geocoding (Nominatim) ---------- */
+async function geocodePlace(place) {
+  const q = encodeURIComponent(place);
+  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
+  const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+  const data = await res.json();
+  if (!data || data.length === 0) throw new Error('Place not found');
+  return {lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), name: data[0].display_name};
+}
+
+/* ---------- Open-Meteo solar data ---------- */
+/*
+ We'll request daily shortwave_radiation_sum for the previous full calendar year.
+ API endpoint: https://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&daily=shortwave_radiation_sum&start_date=YYYY-01-01&end_date=YYYY-12-31&timezone=UTC
+ Response field: daily.shortwave_radiation_sum[] (unit: Wh/m²)  -> convert to kWh/m²/day dividing by 1000
+*/
+async function fetchAnnualIrradiation(lat, lon) {
+  // previous full year
+  const now = new Date();
+  const year = now.getUTCFullYear() - 1;
+  const start = `${year}-01-01`;
+  const end = `${year}-12-31`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum&start_date=${start}&end_date=${end}&timezone=UTC`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Open-Meteo request failed: ' + r.status);
+  const j = await r.json();
+  if (!j.daily || !j.daily.shortwave_radiation_sum) throw new Error('No solar data returned');
+  const arr = j.daily.shortwave_radiation_sum; // array of daily Wh/m2
+  // compute annual sum, average daily
+  const sumWh = arr.reduce((a,b)=>a+(b||0),0);
+  const avgDailyWh = sumWh / arr.length;
+  // PSH (kWh/m2/day)
+  const psh = avgDailyWh / 1000.0;
+  return {year: year, avgDailyWh, psh, dailyArray: arr};
+}
+
+/* ---------- Tilt / orientation calculations ---------- */
+function recommendedTilt(latitude, strategy, manual) {
+  // professional rule-of-thumb:
+  // - year-round: tilt ≈ latitude
+  // - summer optimization: tilt ≈ latitude * 0.8
+  // - winter optimization: tilt ≈ latitude * 1.15
+  // We'll return recommended fixed tilt depending on user choice
+  let lat = Number(latitude);
+  if (isNaN(lat)) lat = 0;
+  if (strategy === 'lat') return Math.abs(lat); // year-round
+  if (strategy === 'lat-10') return Math.max(0, Math.abs(lat) - 10);
+  if (strategy === 'custom') return Number(manual) || Math.abs(lat);
+  return Math.abs(lat);
+}
+
+/* ---------- Core calculation ---------- */
+async function performCalculation() {
+  id('inputError').textContent = '';
+  // read inputs & validate
+  const cons = parseFloat(id('consumption').value);
+  const period = id('consumptionPeriod').value;
+  if (isNaN(cons) || cons <= 0) { id('inputError').textContent = 'Enter a valid consumption value.'; return; }
+
+  // location
+  let lat, lon, placeLabel='(user-provided)';
+  const mode = id('locMode').value;
+  try {
+    if (mode === 'geolocate') {
+      // try browser geolocation
+      const pos = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) reject(new Error('Geolocation not supported'));
+        navigator.geolocation.getCurrentPosition(p => resolve(p.coords), err => reject(err));
+      });
+      lat = pos.latitude; lon = pos.longitude;
+      placeLabel = `Browser location (lat ${lat.toFixed(4)}, lon ${lon.toFixed(4)})`;
+    } else if (mode === 'coords') {
+      lat = parseFloat(id('latitude').value);
+      lon = parseFloat(id('longitude').value);
+      if (isNaN(lat) || isNaN(lon)) throw new Error('Enter valid coordinates');
+      placeLabel = `Coordinates (lat ${lat.toFixed(4)}, lon ${lon.toFixed(4)})`;
+    } else if (mode === 'search') {
+      const place = id('placeName').value.trim();
+      if (!place) throw new Error('Enter a place name to search');
+      const geo = await geocodePlace(place);
+      lat = geo.lat; lon = geo.lon; placeLabel = geo.name;
+    }
+  } catch (err) {
+    id('inputError').textContent = 'Location error: ' + err.message;
+    return;
+  }
+
+  // fetch solar data
+  let solar;
+  try {
+    solar = await fetchAnnualIrradiation(lat, lon);
+  } catch (err) {
+    id('inputError').textContent = 'Solar data error: ' + err.message + '. You can also enter PSH manually by using another tool.';
+    return;
+  }
+
+  // system parameters
+  const panelWp = Number(id('panelWp').value) || 400;
+  const panelEff = Number(id('panelEff').value) || null; // in %
+  const deratingPct = Number(id('derating').value) || 14; // %
+  const systemLoss = deratingPct / 100.0;
+  const roofArea = Number(id('roofArea').value) || null;
+  // tilt recommended
+  const strategy = id('tiltStrategy').value;
+  const manualTilt = Number(id('manualTilt').value);
+  const tilt = recommendedTilt(lat, strategy, manualTilt);
+
+  // consumption -> daily (kWh/day)
+  let consPerDay = (period === 'monthly') ? (cons / 30.44) : (cons / 365.25);
+
+  // PSH we obtained (kWh/m2/day)
+  const psh = solar.psh;
+
+  // Effective system performance: module irradiance captured depends on tilt & azimuth:
+  // We'll approximate plane-of-array (POA) factor using a simple tilt factor:
+  // For preliminary design we use a tilt factor: POA = cos(tilt - optimal_tilt) approximation is too simple.
+  // Use a rule: tilt close to latitude (optimal) -> 1.00 ; every 5° deviation -> -1.5% energy
+  // For more exact use a PV model. Here a conservative approach:
+  function tiltEnergyFactor(lat, panelTilt, panelAzimuth, roofAzimuth) {
+    // difference from optimal (lat)
+    const optimal = Math.abs(lat);
+    const diff = Math.abs(panelTilt - optimal);
+    const tiltLoss = Math.min(0.12, diff * 0.003); // 0.3% per degree approx up to 12%
+    // azimuth: difference from south (180°) costs energy: ~0.5% per 5° off south
+    const azDiff = Math.abs(((panelAzimuth || 180) - 180));
+    const azLoss = Math.min(0.20, (azDiff/5) * 0.005); // 0.5% per 5° -> 0.005 per degree
+    const factor = Math.max(0.75, 1 - tiltLoss - azLoss);
+    return factor;
+  }
+  const roofAz = Number(id('azimuth').value) || 180;
+  const tiltFactor = tiltEnergyFactor(lat, tilt, roofAz, roofAz);
+
+  // Effective PSH on plane of array
+  const effectivePSH = psh * tiltFactor;
+
+  // Required DC power (kWp) = daily consumption (kWh/day) / (effectivePSH * (1 - systemLoss))
+  // Because: energy_kWh/day = kWp * PSH * system_efficiency
+  const systemEfficiency = 1 - systemLoss;
+  const requiredDcKw = consPerDay / (effectivePSH * systemEfficiency);
+  const requiredDcWp = requiredDcKw * 1000;
+
+  // number of panels
+  const panelCount = Math.ceil(requiredDcWp / panelWp);
+
+  // area estimate per panel
+  const panelArea = panelEff ? (panelWp / 1000) / (panelEff / 100) : PANEL_AREA_DEFAULT_M2;
+  const areaNeeded = panelCount * panelArea;
+
+  // Verify roof area
+  let roofFit = 'unknown';
+  if (roofArea) roofFit = (areaNeeded <= roofArea) ? 'OK' : 'NOT ENOUGH AREA';
+
+  // yearly expected generation (kWh) = requiredDcKw * effectivePSH_daily_avg * 365.25 * system_efficiency
+  const expectedAnnualKWh = requiredDcKw * effectivePSH * 365.25 * systemEfficiency;
+
+  // percent of consumption covered
+  // total annual consumption:
+  const annualConsumption = (period === 'monthly') ? (cons * 12) : cons;
+  const percentCovered = (expectedAnnualKWh / annualConsumption) * 100;
+
+  // inverter selection: industry practice: AC inverter ~ 0.8-1.0 * DC power (we choose 0.9 factor)
+  const suggestedInverterW = Math.ceil(requiredDcWp * 0.9);
+  const selectedInverterW = nearestInverterW(suggestedInverterW);
+  const selectedInverterKW = (selectedInverterW / 1000).toFixed(2);
+
+  // CO2 savings
+  const co2factor = Number(id('co2factor').value) || 0.45;
+  const annualCo2Savings = expectedAnnualKWh * co2factor;
+
+  // build output
+  id('resultsOut').innerHTML = `
+    <strong>Site:</strong> ${placeLabel} (lat ${lat.toFixed(4)}, lon ${lon.toFixed(4)})<br/>
+    <strong>Average PSH (kWh/m²/day):</strong> ${psh.toFixed(3)} (calendar year ${solar.year})<br/>
+    <strong>Effective PSH (on panel plane):</strong> ${effectivePSH.toFixed(3)} kWh/m²/day (tilt factor ${(tiltFactor*100).toFixed(1)}%)<br/>
+    <strong>Recommended fixed tilt:</strong> ${tilt.toFixed(1)}° (strategy: ${strategy})<br/>
+    <strong>Required DC capacity:</strong> ${requiredDcKw.toFixed(2)} kWp (~${Math.round(requiredDcWp).toLocaleString()} Wp)<br/>
+    <strong>Number of panels:</strong> ${panelCount} × ${panelWp} Wp (area ≈ ${areaNeeded.toFixed(1)} m², per-panel area ${panelArea.toFixed(2)} m²)<br/>
+    <strong>Suggested inverter:</strong> ${selectedInverterKW} kW (standard size ${selectedInverterW} W)<br/>
+    <strong>Estimated annual production:</strong> ${expectedAnnualKWh.toFixed(0)} kWh/year (${percentCovered.toFixed(1)}% of consumption)<br/>
+    <strong>Estimated CO₂ savings:</strong> ${annualCo2Savings.toFixed(0)} kg CO₂/year (factor ${co2factor} kg/kWh)<br/>
+    <small class="muted">Note: preliminary estimate — final design should use a full PV yield model (e.g., PVGIS, SAM) and shading analysis.</small>
+  `;
+
+  // details table
+  const t = id('resultsTable');
+  t.innerHTML = '';
+  const add = (k,v) => t.insertAdjacentHTML('beforeend', `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`);
+  add('Consumption (annual)', `${annualConsumption.toLocaleString()} kWh/year`);
+  add('Consumption (daily)', `${consPerDay.toFixed(2)} kWh/day`);
+  add('Calendar year used (solar data)', solar.year);
+  add('Average daily irradiation', `${solar.avgDailyWh.toFixed(0)} Wh/m²/day`);
+  add('PSH (kWh/m²/day)', psh.toFixed(3));
+  add('Tilt strategy', strategy);
+  add('Tilt factor (energy)', `${(tiltFactor*100).toFixed(1)}%`);
+  add('System derating (losses)', `${(systemLoss*100).toFixed(1)}%`);
+  add('Panel Wp', `${panelWp} Wp`);
+  add('Panel area (est.)', `${panelArea.toFixed(2)} m²`);
+  add('Area needed', `${areaNeeded.toFixed(1)} m²`);
+  add('Roof area available', roofArea ? roofArea + ' m²' : 'not provided');
+  add('Roof fit', roofFit);
+  add('Suggested inverter (AC kW)', `${selectedInverterKW} kW`);
+  add('Est. annual energy', `${expectedAnnualKWh.toFixed(0)} kWh`);
+  add('Est. CO₂ savings', `${annualCo2Savings.toFixed(0)} kg CO₂/year`);
+
+  id('resultsCard').style.display = 'block';
+
+  // attach data to element for PDF
+  id('resultsCard').dataset.report = JSON.stringify({
+    site: placeLabel, lat, lon, solarYear: solar.year, psh, effectivePSH, tilt, panelWp, panelArea, panelCount,
+    requiredDcKw, selectedInverterW, selectedInverterKW, expectedAnnualKWh, annualConsumption, percentCovered, annualCo2Savings, systemLoss
+  }, null, 2);
+}
+
+/* ---------- Button handlers ---------- */
+id('fetchSolar').addEventListener('click', async () => {
+  id('fetchSolar').disabled = true;
+  id('fetchSolar').textContent = 'Working…';
+  try {
+    await performCalculation();
+  } catch (e) {
+    id('inputError').textContent = 'Error: ' + e.message;
+  } finally {
+    id('fetchSolar').disabled = false;
+    id('fetchSolar').textContent = 'Fetch solar data & Calculate';
+  }
+});
+
+/* ---------- PDF generation ---------- */
+id('downloadPdf').addEventListener('click', () => {
+  const r = id('resultsCard').dataset.report;
+  if (!r) { alert('No results to export'); return; }
+  const data = JSON.parse(r);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  let y = 12;
+  doc.setFontSize(14);
+  doc.text('PV Sizing Professional Report', 14, y); y += 8;
+  doc.setFontSize(10);
+  doc.text(`Site: ${data.site}`, 14, y); y += 6;
+  doc.text(`Coordinates: ${data.lat.toFixed(4)}, ${data.lon.toFixed(4)} — Solar year: ${data.solarYear}`, 14, y); y += 6;
+  doc.text(`PSH (kWh/m²/day): ${data.psh.toFixed(3)} — Effective PSH: ${data.effectivePSH.toFixed(3)}`, 14, y); y += 8;
+  doc.text(`Recommended tilt: ${data.tilt.toFixed(1)}°`, 14, y); y += 8;
+  doc.text(`Required DC capacity: ${data.requiredDcKw.toFixed(2)} kWp`, 14, y); y += 6;
+  doc.text(`Panels: ${data.panelCount} × ${data.panelWp} Wp — Area ≈ ${data.panelArea.toFixed(2)} m² each`, 14, y); y += 6;
+  doc.text(`Suggested inverter: ${data.selectedInverterKW} kW`, 14, y); y += 6;
+  doc.text(`Estimated annual production: ${Math.round(data.expectedAnnualKWh)} kWh/year`, 14, y); y += 8;
+  doc.text(`Percent of consumption covered: ${data.percentCovered.toFixed(1)}%`, 14, y); y += 8;
+  doc.text('Assumptions & notes:', 14, y); y += 6;
+  doc.setFontSize(9);
+  doc.text('- Solar data source: Open-Meteo (nearest grid point).', 14, y); y += 5;
+  doc.text('- PSH derived as average daily shortwave radiation (Wh/m²/day) / 1000.', 14, y); y += 5;
+  doc.text('- System losses included: ' + (data.systemLoss*100).toFixed(1) + '%.', 14, y); y += 6;
+  doc.text('- This is a preliminary design. For final system design: use PVGIS/SAM, shading analysis, inverter manufacturer guidelines.', 14, y); y += 8;
+
+  doc.save('PV_Sizing_Report.pdf');
+});
+
+</script>
+</body>
+</html>

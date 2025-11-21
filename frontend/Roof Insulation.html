@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Efficiency Calculator for Roof Insulation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        form {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fff;
+        }
+        .hidden {
+            display: none;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        #pdfButton {
+            margin-top: 20px;
+            width: auto;
+            padding: 10px 20px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <h1>Energy Efficiency Calculator for Roof Insulation</h1>
+    <p>Based on the attached diagram, the insulated roof has a U-value of 0.32 W/m²K. For uninsulated, we assume 2.0 W/m²K. Heating Degree Days (HDD) default to 3000 °C-days/year (adjustable for your region).</p>
+    <form id="calculatorForm">
+        <label for="roofArea">Roof Area (in m²):</label>
+        <input type="number" id="roofArea" min="1" value="100" required>
+
+        <label for="uBefore">U-value Before Insulation (W/m²K, default 2.0 for uninsulated):</label>
+        <input type="number" id="uBefore" step="0.01" value="2.0" min="0.1" required>
+
+        <label for="uAfter">U-value After Insulation (W/m²K, from diagram 0.32):</label>
+        <input type="number" id="uAfter" step="0.01" value="0.32" min="0.1" required>
+
+        <label for="hdd">Heating Degree Days (HDD, default 3000):</label>
+        <input type="number" id="hdd" value="3000" min="100" required>
+
+        <button type="submit">Calculate</button>
+    </form>
+
+    <div id="results" class="hidden">
+        <h2>Calculation Results:</h2>
+        <p id="heatLoss"></p>
+        <table id="heatingTable">
+            <thead>
+                <tr>
+                    <th>Heating Type</th>
+                    <th>Efficiency/COP</th>
+                    <th>Energy Before (kWh/year)</th>
+                    <th>Energy After (kWh/year)</th>
+                    <th>Energy Savings (kWh/year)</th>
+                    <th>GHG Before (kg CO2/year)</th>
+                    <th>GHG After (kg CO2/year)</th>
+                    <th>GHG Savings (kg CO2/year)</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="pdfButton">Download Report as PDF</button>
+    </div>
+
+    <script>
+        const { jsPDF } = window.jspdf;
+
+        document.getElementById('calculatorForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const roofArea = parseFloat(document.getElementById('roofArea').value);
+            const uBefore = parseFloat(document.getElementById('uBefore').value);
+            const uAfter = parseFloat(document.getElementById('uAfter').value);
+            const hdd = parseFloat(document.getElementById('hdd').value);
+
+            // Calculate heat loss in kWh/year
+            const heatLossBefore = uBefore * roofArea * hdd * 24 / 1000;
+            const heatLossAfter = uAfter * roofArea * hdd * 24 / 1000;
+            const heatSavings = heatLossBefore - heatLossAfter;
+
+            document.getElementById('heatLoss').innerHTML = `
+                Heat Loss Before: ${heatLossBefore.toFixed(2)} kWh/year<br>
+                Heat Loss After: ${heatLossAfter.toFixed(2)} kWh/year<br>
+                Heat Savings: ${heatSavings.toFixed(2)} kWh/year
+            `;
+
+            // Heating systems
+            const systems = [
+                { name: 'Oil Boiler', eff: 0.85, factor: 0.26 },
+                { name: 'Pellet Boiler', eff: 0.9, factor: 0.05 },
+                { name: 'Electric Heater', eff: 1.0, factor: 0.3 },
+                { name: 'Heat Pump', eff: 3.0, factor: 0.3 }
+            ];
+
+            const tbody = document.querySelector('#heatingTable tbody');
+            tbody.innerHTML = '';
+
+            systems.forEach(sys => {
+                const energyBefore = heatLossBefore / sys.eff;
+                const energyAfter = heatLossAfter / sys.eff;
+                const energySavings = energyBefore - energyAfter;
+                const ghgBefore = energyBefore * sys.factor;
+                const ghgAfter = energyAfter * sys.factor;
+                const ghgSavings = ghgBefore - ghgAfter;
+
+                const row = `
+                    <tr>
+                        <td>${sys.name}</td>
+                        <td>${sys.eff}</td>
+                        <td>${energyBefore.toFixed(2)}</td>
+                        <td>${energyAfter.toFixed(2)}</td>
+                        <td>${energySavings.toFixed(2)}</td>
+                        <td>${ghgBefore.toFixed(2)}</td>
+                        <td>${ghgAfter.toFixed(2)}</td>
+                        <td>${ghgSavings.toFixed(2)}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+
+            document.getElementById('results').classList.remove('hidden');
+        });
+
+        document.getElementById('pdfButton').addEventListener('click', function() {
+            const doc = new jsPDF();
+            doc.setFontSize(16);
+            doc.text('Energy Efficiency Report', 10, 10);
+            doc.setFontSize(12);
+            doc.text(document.getElementById('heatLoss').innerText, 10, 20);
+
+            const table = document.getElementById('heatingTable');
+            const rows = [];
+            for (let i = 0; i < table.rows.length; i++) {
+                const cells = [];
+                for (let j = 0; j < table.rows[i].cells.length; j++) {
+                    cells.push(table.rows[i].cells[j].innerText);
+                }
+                rows.push(cells);
+            }
+
+            doc.autoTable({
+                head: [rows[0]],
+                body: rows.slice(1),
+                startY: 40
+            });
+
+            doc.save('energy_report.pdf');
+        });
+    </script>
+</body>
+</html>

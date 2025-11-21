@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator for Replacing Heating with Heat Pump</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        form { max-width: 600px; }
+        label { display: block; margin-top: 10px; }
+        input, select { width: 100%; padding: 8px; margin-top: 5px; }
+        button { margin-top: 20px; padding: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        #report { margin-top: 30px; border: 1px solid #ccc; padding: 15px; display: none; }
+    </style>
+</head>
+<body>
+    <h1>Calculator for Replacing Heating with Heat Pump</h1>
+    <form id="heatingForm">
+        <label for="heatingType">Type of existing heating:</label>
+        <select id="heatingType">
+            <option value="oil">Oil boiler (old, efficiency ~70%)</option>
+            <option value="pellet">Pellet boiler (old, efficiency ~80%)</option>
+            <option value="electric">Electric heating (efficiency 100%)</option>
+            <option value="gas">Gas boiler (old, efficiency ~80%)</option>
+            <option value="other">Other (enter efficiency)</option>
+        </select>
+
+        <label for="customEfficiency" style="display:none;">Efficiency (%):</label>
+        <input type="number" id="customEfficiency" min="1" max="100" style="display:none;" placeholder="Enter efficiency in %">
+
+        <label for="capacity">Heating capacity (kW):</label>
+        <input type="number" id="capacity" required min="1" placeholder="Enter capacity in kW">
+
+        <label for="hoursPerDay">Number of heating hours per day:</label>
+        <input type="number" id="hoursPerDay" required min="1" max="24" placeholder="Enter hours per day">
+
+        <label for="daysPerMonth">Number of heating days per month:</label>
+        <input type="number" id="daysPerMonth" required min="1" max="31" placeholder="Enter days per month">
+
+        <button type="button" onclick="calculate()">Calculate and Generate Report</button>
+    </form>
+
+    <div id="report">
+        <h2>Report</h2>
+        <p id="existingType"></p>
+        <p id="existingEfficiency"></p>
+        <p id="capacityDisplay"></p>
+        <p id="heatDelivered"></p>
+        <p id="existingConsumption"></p>
+        <p id="existingGHG"></p>
+        <p id="recommendedHP"></p>
+        <p id="newConsumption"></p>
+        <p id="newGHG"></p>
+        <p id="energySavings"></p>
+        <p id="ghgSavings"></p>
+    </div>
+
+    <script>
+        const efficiencies = {
+            oil: 0.70,
+            pellet: 0.80,
+            electric: 1.00,
+            gas: 0.80
+        };
+
+        const emissionFactors = { // kg CO2e per kWh input energy
+            oil: 0.266, // for heating oil
+            pellet: 0.04, // for wood pellets (including lifecycle)
+            electric: 0.60, // electricity in North Macedonia ~600 g/kWh
+            gas: 0.202, // for natural gas
+            other: 0.60 // default for other, assume electric
+        };
+
+        const hpCOP = 3.5; // Average COP for air source heat pump
+        const elecEmission = 0.60; // kg CO2e/kWh for electricity
+
+        document.getElementById('heatingType').addEventListener('change', function() {
+            const customEff = document.getElementById('customEfficiency');
+            const customLabel = customEff.previousElementSibling;
+            if (this.value === 'other') {
+                customEff.style.display = 'block';
+                customLabel.style.display = 'block';
+                customEff.required = true;
+            } else {
+                customEff.style.display = 'none';
+                customLabel.style.display = 'none';
+                customEff.required = false;
+            }
+        });
+
+        function calculate() {
+            const type = document.getElementById('heatingType').value;
+            let efficiency = efficiencies[type] || (parseFloat(document.getElementById('customEfficiency').value) / 100);
+            if (isNaN(efficiency) || efficiency <= 0) {
+                alert('Enter valid efficiency!');
+                return;
+            }
+
+            const capacity = parseFloat(document.getElementById('capacity').value);
+            const hours = parseFloat(document.getElementById('hoursPerDay').value);
+            const days = parseFloat(document.getElementById('daysPerMonth').value);
+
+            if (isNaN(capacity) || isNaN(hours) || isNaN(days)) {
+                alert('Enter valid numbers!');
+                return;
+            }
+
+            const heatDelivered = capacity * hours * days; // kWh heat per month
+
+            const existingInput = heatDelivered / efficiency; // kWh input energy
+            const emFactor = emissionFactors[type] || emissionFactors.other;
+            const existingGHG = existingInput * emFactor; // kg CO2e
+
+            // Heat pump: same capacity recommended
+            const hpCapacity = capacity; // kW
+            const newInput = heatDelivered / hpCOP; // kWh electricity
+            const newGHG = newInput * elecEmission; // kg CO2e
+
+            const energySavings = existingInput - newInput; // kWh
+            const ghgSavings = existingGHG - newGHG; // kg CO2e
+
+            // Display report
+            document.getElementById('existingType').innerText = `Type of existing heating: ${type === 'oil' ? 'Oil boiler' : type === 'pellet' ? 'Pellet boiler' : type === 'electric' ? 'Electric' : type === 'gas' ? 'Gas boiler' : 'Other'}`;
+            document.getElementById('existingEfficiency').innerText = `Efficiency: ${(efficiency * 100).toFixed(0)}%`;
+            document.getElementById('capacityDisplay').innerText = `Capacity: ${capacity} kW`;
+            document.getElementById('heatDelivered').innerText = `Monthly delivered heat: ${heatDelivered.toFixed(2)} kWh`;
+            document.getElementById('existingConsumption').innerText = `Existing energy consumption: ${existingInput.toFixed(2)} kWh`;
+            document.getElementById('existingGHG').innerText = `Existing GHG emissions: ${existingGHG.toFixed(2)} kg CO2e`;
+            document.getElementById('recommendedHP').innerText = `Recommended heat pump capacity: ${hpCapacity} kW (COP: ${hpCOP})`;
+            document.getElementById('newConsumption').innerText = `New energy consumption: ${newInput.toFixed(2)} kWh`;
+            document.getElementById('newGHG').innerText = `New GHG emissions: ${newGHG.toFixed(2)} kg CO2e`;
+            document.getElementById('energySavings').innerText = `Energy savings: ${energySavings.toFixed(2)} kWh (monthly)`;
+            document.getElementById('ghgSavings').innerText = `GHG emissions savings: ${ghgSavings.toFixed(2)} kg CO2e (monthly)`;
+
+            document.getElementById('report').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

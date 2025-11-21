@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Advanced HDD/CDD Heating & Cooling Sizing</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#111}
+  body{max-width:1200px;margin:18px auto;padding:16px}
+  h1{margin:0 0 6px;font-size:1.5rem}
+  .muted{color:#58616a;font-size:0.95rem}
+  .card{background:#fff;border-radius:10px;padding:14px;margin:12px 0;box-shadow:0 1px 10px rgba(18,24,40,0.04)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1 1 260px;min-width:240px}
+  label{display:block;font-weight:600;margin-bottom:6px}
+  input,select,button,textarea{width:100%;padding:9px;border-radius:8px;border:1px solid #d6dbe2;box-sizing:border-box}
+  button{background:#0b76ef;color:#fff;border:0;padding:10px 12px;cursor:pointer;border-radius:8px}
+  button.secondary{background:#11a951}
+  .out{background:#fbfdff;border:1px solid #e6f0ff;padding:10px;border-radius:8px;margin-top:8px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  td,th{padding:6px;border-bottom:1px solid #eee}
+  .small{font-size:0.9rem;color:#555}
+  .error{color:#b00020;font-weight:700;margin-top:8px}
+  .flex{display:flex;gap:8px;align-items:center}
+  .mini{font-size:0.85rem;color:#666}
+  canvas{max-width:100%}
+</style>
+
+<!-- Chart.js for charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- jsPDF for PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <h1>Advanced HDD/CDD Heating & Cooling Sizing</h1>
+  <div class="muted">Professional sizing using degree-days (Open-Meteo) with monthly breakdown, area-weighted UA calculation and presets by city/country. Generates PDF report.</div>
+
+  <!-- 1. Location, presets, HDD/CDD bases -->
+  <div class="card">
+    <h3>1) Site & Presets</h3>
+    <div class="row">
+      <div class="col">
+        <label>Preset (country / city)</label>
+        <select id="presetSelect">
+          <option value="">-- choose preset --</option>
+          <option data-hdd="3000" data-cdd="0" data-hddbase="18" data-cddbase="24" data-theat="-10" data-tcool="35" value="skopje">Skopje, MK — HDD~3000, HDD base 18°C, design -10°C</option>
+          <option data-hdd="2600" data-cdd="0" data-hddbase="18" data-cddbase="24" data-theat="-5" data-tcool="34" value="sofia">Sofia, BG — HDD~2600</option>
+          <option data-hdd="4000" data-cdd="0" data-hddbase="18" data-cddbase="24" data-theat="-12" data-tcool="30" value="moscow">Moscow, RU — HDD~4000</option>
+          <option data-hdd="2200" data-cdd="100" data-hddbase="18" data-cddbase="24" data-theat="-3" data-tcool="34" value="rome">Rome, IT — milder</option>
+          <option data-hdd="2800" data-cdd="150" data-hddbase="18" data-cddbase="24" data-theat="-6" data-tcool="34" value="zagreb">Zagreb, HR</option>
+          <option data-hdd="3300" data-cdd="20" data-hddbase="18" data-cddbase="24" data-theat="-8" data-tcool="34" value="vienna">Vienna, AT</option>
+          <option data-hdd="2200" data-cdd="200" data-hddbase="18" data-cddbase="24" data-theat="-2" data-tcool="36" value="athens">Athens, GR</option>
+        </select>
+        <small class="mini">Choosing a preset auto-fills base temps and example design temps (you can edit them).</small>
+      </div>
+
+      <div class="col">
+        <label>Location source</label>
+        <select id="locMode">
+          <option value="geolocate">Browser geolocation</option>
+          <option value="coords">Enter coordinates</option>
+          <option value="place">Search place name</option>
+        </select>
+      </div>
+
+      <div class="col" id="coordsCol" style="display:none">
+        <label>Latitude</label><input id="lat" type="number" step="0.0001" placeholder="41.9981">
+        <label style="margin-top:8px">Longitude</label><input id="lon" type="number" step="0.0001" placeholder="21.4254">
+      </div>
+
+      <div class="col" id="placeCol" style="display:none">
+        <label>Place name (Nominatim)</label><input id="placeName" placeholder="e.g. Skopje, Macedonia">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div class="col">
+        <label>HDD base (°C)</label><input id="hddBase" type="number" value="18" step="0.1">
+      </div>
+      <div class="col">
+        <label>CDD base (°C)</label><input id="cddBase" type="number" value="24" step="0.1">
+      </div>
+      <div class="col">
+        <label>Year for climate</label><input id="year" type="number" value="">
+        <small class="mini">Leave blank → previous full year</small>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="row">
+      <div class="col" style="display:flex;align-items:flex-end">
+        <button id="fetchCalc">Fetch climate & Calculate</button>
+      </div>
+      <div class="col"><div id="siteError" class="error"></div></div>
+    </div>
+  </div>
+
+  <!-- 2. Building geometry and detailed UA inputs -->
+  <div class="card">
+    <h3>2) Building geometry & UA (detailed)</h3>
+    <div class="row">
+      <div class="col">
+        <label>Gross floor area (m²)</label><input id="grossArea" type="number" value="200" step="0.1">
+      </div>
+      <div class="col">
+        <label>Net heated/cooled area (m²)</label><input id="netArea" type="number" value="180" step="0.1">
+      </div>
+      <div class="col">
+        <label>Exposure</label>
+        <select id="exposure">
+          <option value="sheltered">Sheltered (urban)</option>
+          <option value="exposed">Exposed (windy)</option>
+        </select>
+      </div>
+    </div>
+
+    <hr style="margin:12px 0">
+
+    <h4>Method A — Quick: enter overall average U (W/m²K)</h4>
+    <div class="row">
+      <div class="col"><label>Overall average U (W/m²K)</label><input id="overallU" type="number" value="0.6" step="0.01"></div>
+      <div class="col"><label>Exposure factor</label><input id="exposureFactor" type="number" value="1.10" step="0.01"></div>
+      <div class="col" style="display:flex;align-items:flex-end"><div class="mini">Quick UA = U * chosen area * exposure factor</div></div>
+    </div>
+
+    <hr style="margin:12px 0">
+
+    <h4>Method B — Detailed: define envelope elements (area + U-value)</h4>
+    <div class="mini">Add building elements (external walls, roof, windows, doors, etc.) with area and U-value; app will compute weighted U and UA.</div>
+    <table id="elementsTable" style="margin-top:8px"><thead><tr><th>Element</th><th>Area m²</th><th>U (W/m²K)</th><th>UA (W/K)</th><th></th></tr></thead><tbody></tbody></table>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col"><input id="elemName" placeholder="e.g. External wall"></div>
+      <div class="col"><input id="elemArea" placeholder="m²" type="number"></div>
+      <div class="col"><input id="elemU" placeholder="U (W/m²K)" type="number" step="0.01"></div>
+      <div class="col" style="display:flex;align-items:flex-end"><button id="addElement">Add element</button></div>
+    </div>
+  </div>
+
+  <!-- 3. System & design temps -->
+  <div class="card">
+    <h3>3) System & design temperatures</h3>
+    <div class="row">
+      <div class="col"><label>Indoor setpoint heating (°C)</label><input id="tIndoorHeat" type="number" value="20" step="0.1"></div>
+      <div class="col"><label>Design outdoor heating (°C) — example from preset</label><input id="tOutdoorDesignHeat" type="number" value="-5" step="0.1"></div>
+      <div class="col"><label>Heating system efficiency (fraction)</label><input id="heatingEff" type="number" value="0.9" step="0.01"></div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col"><label>Indoor setpoint cooling (°C)</label><input id="tIndoorCool" type="number" value="24" step="0.1"></div>
+      <div class="col"><label>Design outdoor cooling (°C)</label><input id="tOutdoorDesignCool" type="number" value="35" step="0.1"></div>
+      <div class="col"><label>Cooling COP (or EER conversion)</label><input id="coolingCop" type="number" value="3.0" step="0.01"></div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div class="col"><label>Emission factor (kgCO₂/kWh)</label><input id="emFactor" type="number" value="0.45" step="0.01"></div>
+      <div class="col"><label>Area to use for kWh/m² calculation</label>
+        <select id="areaChoice"><option value="gross">Gross</option><option value="net">Net</option></select>
+      </div>
+      <div class="col" style="display:flex;align-items:flex-end">
+        <button id="calcBtn">Calculate (HDD/CDD & sizing)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results: summary, monthly charts, tables -->
+  <div id="resultsCard" class="card" style="display:none">
+    <h3>Results summary</h3>
+    <div id="summary" class="out"></div>
+
+    <div style="margin-top:12px"><canvas id="monthlyChart" height="160"></canvas></div>
+    <div style="margin-top:12px"><canvas id="dailyChart" height="160"></canvas></div>
+
+    <h4 style="margin-top:12px">Monthly breakdown (heating & cooling kWh)</h4>
+    <table id="monthlyTable"><thead><tr><th>Month</th><th>Mean T (°C)</th><th>HDD</th><th>Heating kWh</th><th>CDD</th><th>Cooling kWh</th></tr></thead><tbody></tbody></table>
+
+    <div style="margin-top:12px" class="row">
+      <div class="col"><button id="pdfBtn" class="secondary">Download PDF report</button></div>
+      <div class="col"><button id="resetBtn" style="background:#f2f2f2;color:#111">Reset</button></div>
+    </div>
+  </div>
+
+<script>
+/* Helper utilities */
+const id = s => document.getElementById(s);
+const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/* Preset handling */
+id('presetSelect').addEventListener('change', (e)=>{
+  const opt = e.target.selectedOptions[0];
+  if(!opt) return;
+  const hddbase = opt.dataset.hddbase, cddbase = opt.dataset.cddbase;
+  const theat = opt.dataset.theat, tcool = opt.dataset.tcool;
+  if(hddbase) id('hddBase').value = parseFloat(hddbase);
+  if(cddbase) id('cddBase').value = parseFloat(cddbase);
+  if(theat) id('tOutdoorDesignHeat').value = parseFloat(theat);
+  if(tcool) id('tOutdoorDesignCool').value = parseFloat(tcool);
+});
+
+/* location mode toggle */
+id('locMode').addEventListener('change', e=>{
+  const v = e.target.value;
+  id('coordsCol').style.display = v==='coords' ? 'block' : 'none';
+  id('placeCol').style.display = v==='place' ? 'block' : 'none';
+});
+
+/* geocode (Nominatim) */
+async function geocode(place){
+  const q = encodeURIComponent(place);
+  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
+  const res = await fetch(url, {headers:{'Accept':'application/json'}});
+  if(!res.ok) throw new Error('Geocoding failed');
+  const arr = await res.json();
+  if(!arr || arr.length===0) throw new Error('Place not found');
+  return {lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon), name: arr[0].display_name};
+}
+
+/* fetch daily mean temps for a year using Open-Meteo */
+async function fetchDailyTemps(lat, lon, year){
+  const start = `${year}-01-01`, end = `${year}-12-31`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_mean&start_date=${start}&end_date=${end}&timezone=UTC`;
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('Open-Meteo: ' + r.status);
+  const j = await r.json();
+  if(!j.daily || !j.daily.temperature_2m_mean) throw new Error('No temperature data');
+  // also get the dates array for monthly grouping
+  return {temps: j.daily.temperature_2m_mean, dates: j.daily.time};
+}
+
+/* compute monthly and yearly HDD/CDD */
+function computeDegreeDaysSeries(temps, dates, hddBase, cddBase){
+  // temps: array of daily mean temps, dates: corresponding iso dates
+  const daily = temps.map((t,i)=>({t: Number(t), date: dates[i]}));
+  const monthly = Array.from({length:12}, ()=>({count:0, sumTemp:0, HDD:0, CDD:0}));
+  let totalHDD=0, totalCDD=0;
+  daily.forEach(d=>{
+    const monthIndex = new Date(d.date).getUTCMonth();
+    monthly[monthIndex].count++;
+    monthly[monthIndex].sumTemp += d.t;
+    const hdd = Math.max(0, hddBase - d.t);
+    const cdd = Math.max(0, d.t - cddBase);
+    monthly[monthIndex].HDD += hdd;
+    monthly[monthIndex].CDD += cdd;
+    totalHDD += hdd; totalCDD += cdd;
+  });
+  return {daily, monthly, totalHDD, totalCDD};
+}
+
+/* elements table management for detailed UA */
+let elements = []; // {name, area, U}
+const tbody = document.querySelector('#elementsTable tbody');
+function renderElements(){
+  tbody.innerHTML = '';
+  elements.forEach((el,i)=>{
+    const ua = el.area * el.U;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${el.name}</td><td>${el.area.toFixed(1)}</td><td>${el.U.toFixed(3)}</td><td>${ua.toFixed(1)}</td><td><button data-i="${i}" class="rm">Remove</button></td>`;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll('.rm').forEach(btn=>btn.onclick = (ev)=>{ elements.splice(parseInt(ev.target.dataset.i),1); renderElements(); });
+}
+id('addElement').addEventListener('click', ()=>{
+  const name = id('elemName').value.trim() || 'Element';
+  const area = parseFloat(id('elemArea').value);
+  const U = parseFloat(id('elemU').value);
+  if(!isFinite(area) || area<=0 || !isFinite(U) || U<=0){ alert('Enter valid area and U'); return; }
+  elements.push({name, area, U});
+  id('elemName').value=''; id('elemArea').value=''; id('elemU').value='';
+  renderElements();
+});
+
+/* main calculation */
+let monthlyChart, dailyChart;
+id('calcBtn').addEventListener('click', async ()=>{
+  id('siteError').textContent='';
+  // location
+  let lat, lon, siteLabel;
+  try{
+    if(id('locMode').value === 'geolocate'){
+      const pos = await new Promise((res, rej)=>{
+        if(!navigator.geolocation) return rej(new Error('Geolocation not supported'));
+        navigator.geolocation.getCurrentPosition(p=>res(p.coords), err=>rej(err));
+      });
+      lat = pos.latitude; lon = pos.longitude; siteLabel = `Browser location (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+    } else if(id('locMode').value === 'coords'){
+      lat = parseFloat(id('lat').value); lon = parseFloat(id('lon').value);
+      if(!isFinite(lat) || !isFinite(lon)) throw new Error('Enter valid coordinates');
+      siteLabel = `Coordinates (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+    } else {
+      const place = id('placeName').value.trim(); if(!place) throw new Error('Enter place name');
+      const g = await geocode(place); lat = g.lat; lon = g.lon; siteLabel = g.name;
+    }
+  } catch(err){ id('siteError').textContent = 'Location error: ' + err.message; return; }
+
+  // year selection
+  const year = parseInt(id('year').value) || (new Date().getUTCFullYear() - 1);
+
+  // fetch temps
+  let data;
+  try{ data = await fetchDailyTemps(lat, lon, year); } catch(err){ id('siteError').textContent = 'Climate error: ' + err.message; return; }
+
+  // compute DD series
+  const hddBase = parseFloat(id('hddBase').value);
+  const cddBase = parseFloat(id('cddBase').value);
+  const dd = computeDegreeDaysSeries(data.temps, data.dates, hddBase, cddBase);
+
+  // choose area
+  const gross = parseFloat(id('grossArea').value);
+  const net = parseFloat(id('netArea').value);
+  const areaChoice = id('areaChoice').value === 'net' ? net : gross;
+  if(!isFinite(areaChoice) || areaChoice <= 0){ id('siteError').textContent = 'Enter valid gross/net area.'; return; }
+
+  // UA calculation: either method A (overallU) or method B (detailed elements)
+  const exposureFactor = parseFloat(id('exposureFactor').value) || 1.0;
+  let overallU = parseFloat(id('overallU').value);
+  let UA = null; // W/K
+  if(elements.length > 0){
+    // compute UA as sum(Ui * Ai) for elements
+    const sumUA = elements.reduce((s,e)=>s + e.U * e.area, 0); // W/K
+    UA = sumUA * exposureFactor;
+    // compute weighted U for information:
+    overallU = sumUA / areaChoice; // note: if element areas don't equal chosen area, this is best-effort
+  } else {
+    // quick method
+    if(!isFinite(overallU) || overallU <= 0){ id('siteError').textContent = 'Enter overall U or add elements.'; return; }
+    UA = overallU * areaChoice * exposureFactor;
+  }
+
+  // Heating and cooling energy (degree-day method)
+  // Annual heating load (delivered to building) = UA (W/K) * HDD (°C·days) * 24 / 1000
+  const annualHeatingDelivered_kWh = UA * dd.totalHDD * 24.0 / 1000.0;
+  const heatingEff = parseFloat(id('heatingEff').value) || 1.0;
+  const annualHeatingInput_kWh = annualHeatingDelivered_kWh / (heatingEff || 1);
+
+  // Cooling: raw thermal
+  const rawCooling_kWh = UA * dd.totalCDD * 24.0 / 1000.0;
+  const coolingCop = parseFloat(id('coolingCop').value) || 1.0;
+  const annualCoolingInput_kWh = rawCooling_kWh / (coolingCop || 1);
+
+  // Peak sizing
+  const tIndoorHeat = parseFloat(id('tIndoorHeat').value);
+  const tOutdoorHeat = parseFloat(id('tOutdoorDesignHeat').value);
+  const deltaT_heat = Math.max(0, tIndoorHeat - tOutdoorHeat);
+  const peakHeat_kW = Math.max(0, UA * deltaT_heat / 1000.0);
+
+  const tIndoorCool = parseFloat(id('tIndoorCool').value);
+  const tOutdoorCool = parseFloat(id('tOutdoorDesignCool').value);
+  const deltaT_cool = Math.max(0, tOutdoorCool - tIndoorCool);
+  const peakCool_kW = Math.max(0, UA * deltaT_cool / 1000.0);
+
+  // per m2 indicators
+  const heating_kWh_per_m2 = annualHeatingInput_kWh / areaChoice;
+  const cooling_kWh_per_m2 = annualCoolingInput_kWh / areaChoice;
+  const peakHeat_kW_per_m2 = peakHeat_kW / areaChoice;
+  const peakCool_kW_per_m2 = peakCool_kW / areaChoice;
+
+  // CO2
+  const emFactor = parseFloat(id('emFactor').value) || 0.45;
+  const heating_CO2 = annualHeatingInput_kWh * emFactor;
+  const cooling_CO2 = annualCoolingInput_kWh * emFactor;
+
+  // Monthly breakdown: compute monthly heating/cooling kWh
+  const monthly = dd.monthly.map((m, idx)=>{
+    const meanT = m.count ? m.sumTemp / m.count : 0;
+    const HDDm = m.HDD;
+    const CDDm = m.CDD;
+    const heatingDelivered = UA * HDDm * 24.0 / 1000.0;
+    const heatingInput = heatingDelivered / (heatingEff || 1);
+    const coolingThermal = UA * CDDm * 24.0 / 1000.0;
+    const coolingInput = coolingThermal / (coolingCop || 1);
+    return {month: months[idx], meanT, HDDm, CDDm, heatingInput, coolingInput};
+  });
+
+  // Show summary
+  id('summary').innerHTML = `<strong>Site:</strong> ${siteLabel} — Year: ${year}<br>
+    <strong>HDD (${hddBase}°C):</strong> ${dd.totalHDD.toFixed(1)} °C·days — <strong>CDD (${cddBase}°C):</strong> ${dd.totalCDD.toFixed(1)} °C·days<br>
+    <strong>Area used:</strong> ${areaChoice.toFixed(1)} m² (choice: ${id('areaChoice').value}) · <strong>Overall U (avg):</strong> ${overallU.toFixed(3)} W/m²K · <strong>Exposure factor:</strong> ${exposureFactor.toFixed(2)}<br>
+    <strong>UA (W/K):</strong> ${UA.toFixed(1)} · <strong>Annual heating (input):</strong> ${Math.round(annualHeatingInput_kWh)} kWh/year (${heating_kWh_per_m2.toFixed(1)} kWh/m²·yr) · <strong>Annual cooling (input):</strong> ${Math.round(annualCoolingInput_kWh)} kWh/year (${cooling_kWh_per_m2.toFixed(1)} kWh/m²·yr)<br>
+    <strong>Peak heating:</strong> ${peakHeat_kW.toFixed(2)} kW (${peakHeat_kW_per_m2.toFixed(3)} kW/m²) · <strong>Peak cooling (thermal):</strong> ${peakCool_kW.toFixed(2)} kW (${peakCool_kW_per_m2.toFixed(3)} kW/m²)<br>
+    <strong>Estimated CO₂ heating:</strong> ${Math.round(heating_CO2)} kg/yr · <strong>CO₂ cooling:</strong> ${Math.round(cooling_CO2)} kg/yr
+  `;
+
+  // Fill monthly table
+  const tbodyMonthly = document.querySelector('#monthlyTable tbody'); tbodyMonthly.innerHTML = '';
+  monthly.forEach((m, i)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${m.month}</td><td>${m.meanT.toFixed(1)}</td><td>${m.HDDm.toFixed(1)}</td><td>${m.heatingInput.toFixed(0)}</td><td>${m.CDDm.toFixed(1)}</td><td>${m.coolingInput.toFixed(0)}</td>`;
+    tbodyMonthly.appendChild(tr);
+  });
+
+  // Prepare charts
+  const labels = monthly.map(m=>m.month);
+  const heatingData = monthly.map(m=>m.heatingInput);
+  const coolingData = monthly.map(m=>m.coolingInput);
+  const meanTemps = monthly.map(m=>m.meanT);
+
+  // monthly chart: stacked bars heating & cooling, line mean temp
+  const mctx = document.getElementById('monthlyChart').getContext('2d');
+  if(monthlyChart) monthlyChart.destroy();
+  monthlyChart = new Chart(mctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {label: 'Heating (kWh)', data: heatingData, backgroundColor: 'rgba(11,118,239,0.8)'},
+        {label: 'Cooling (kWh)', data: coolingData, backgroundColor: 'rgba(17,169,81,0.8)'},
+        {label: 'Mean T (°C)', data: meanTemps, type:'line', yAxisID:'y1', borderColor:'#333', backgroundColor:'#333', fill:false}
+      ]
+    },
+    options: {
+      responsive:true,
+      interaction:{mode:'index',intersect:false},
+      scales:{
+        y:{position:'left',title:{display:true,text:'kWh'}},
+        y1:{position:'right',title:{display:true,text:'°C'}, grid:{drawOnChartArea:false}}
+      }
+    }
+  });
+
+  // daily chart: show first 120 days for visibility (or all)
+  const dctx = document.getElementById('dailyChart').getContext('2d');
+  if(dailyChart) dailyChart.destroy();
+  const dailyTemps = data.temps.map(t=>Number(t));
+  const dailyLabels = data.dates.map(d=>d.slice(5)); // MM-DD
+  dailyChart = new Chart(dctx, {
+    type: 'line',
+    data: {labels: dailyLabels, datasets: [{label:'Daily mean T (°C)', data: dailyTemps, borderColor:'#0b76ef', backgroundColor:'rgba(11,118,239,0.1)', pointRadius:0}]},
+    options:{responsive:true, scales:{x:{display:true, ticks:{maxTicksLimit:12}}}}
+  });
+
+  // Save for PDF
+  const report = {siteLabel, lat, lon, year, hddBase, cddBase, totalHDD: dd.totalHDD, totalCDD: dd.totalCDD,
+    areaChoice, gross, net, overallU, exposureFactor, UA, annualHeatingInput_kWh, annualCoolingInput_kWh,
+    peakHeat_kW, peakCool_kW, heating_kWh_per_m2, cooling_kWh_per_m2, monthly, emFactor};
+  id('resultsCard').dataset.report = JSON.stringify(report);
+  id('resultsCard').style.display = 'block';
+  window.scrollTo({top: document.getElementById('resultsCard').offsetTop-10, behavior:'smooth'});
+});
+
+/* PDF export */
+id('pdfBtn').addEventListener('click', ()=>{
+  const s = id('resultsCard').dataset.report;
+  if(!s){ alert('Run calculation first'); return; }
+  const data = JSON.parse(s);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  let y=14;
+  doc.setFontSize(14); doc.text('Heating & Cooling Sizing Report', 14, y); y+=8;
+  doc.setFontSize(11);
+  doc.text(`Site: ${data.siteLabel}`, 14, y); y+=6;
+  doc.text(`Coordinates: ${data.lat.toFixed(4)}, ${data.lon.toFixed(4)} — Year: ${data.year}`, 14, y); y+=6;
+  doc.text(`HDD (${data.hddBase}°C): ${data.totalHDD.toFixed(1)} °C·days — CDD (${data.cddBase}°C): ${data.totalCDD.toFixed(1)} °C·days`, 14, y); y+=8;
+  doc.text(`Area used: ${data.areaChoice} m² — Overall U: ${data.overallU.toFixed(3)} W/m²K — UA: ${data.UA.toFixed(1)} W/K`, 14, y); y+=8;
+  doc.text(`Annual heating (input): ${Math.round(data.annualHeatingInput_kWh)} kWh/year (${data.heating_kWh_per_m2.toFixed(1)} kWh/m²·yr)`, 14, y); y+=6;
+  doc.text(`Annual cooling (input): ${Math.round(data.annualCoolingInput_kWh)} kWh/year (${data.cooling_kWh_per_m2.toFixed(1)} kWh/m²·yr)`, 14, y); y+=6;
+  doc.text(`Peak heating: ${data.peakHeat_kW.toFixed(2)} kW — Peak cooling (thermal): ${data.peakCool_kW.toFixed(2)} kW`, 14, y); y+=8;
+  doc.text('Monthly breakdown (heating kWh / cooling kWh):', 14, y); y+=6;
+  doc.setFontSize(10);
+  data.monthly.forEach(m=>{
+    if(y>270){ doc.addPage(); y=14; }
+    doc.text(`${m.month}: T=${m.meanT.toFixed(1)}°C — HDD=${m.HDDm.toFixed(1)} — H=${Math.round(m.heatingInput)} kWh — CDD=${m.CDDm.toFixed(1)} — C=${Math.round(m.coolingInput)} kWh`, 14, y);
+    y+=5;
+  });
+  y+=6;
+  doc.text('Assumptions: Degree-day method (Energy = UA * DD * 24 / 1000). UA computed from elements or overall U. Heating input accounts for system efficiency; cooling input accounts for COP. Source: Open-Meteo daily mean temperature.', 14, y);
+  doc.save('Heating_Cooling_Report.pdf');
+});
+
+/* reset */
+id('resetBtn').addEventListener('click', ()=> location.reload());
+
+</script>
+</body>
+</html>
